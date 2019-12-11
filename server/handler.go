@@ -7,9 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-
 	"golang.org/x/crypto/ssh"
-
 	"github.com/XevoInc/chisel/share"
 )
 
@@ -130,6 +128,7 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	for i, r := range c.Remotes {
+	  clog.Debugf("Remote %s", r)
 		if r.Reverse {
 			proxy := chshare.NewTCPProxy(s.Logger, func() ssh.Conn { return sshConn }, i, r)
 			if err := proxy.Start(ctx); err != nil {

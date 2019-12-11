@@ -6,6 +6,9 @@ bin/
 release/
 *.orig
 debug
+.vscode/
+__debug_bin
+/*.code-workspace
 
 # Compiled Object files, Static and Dynamic libs (Shared Objects)
 *.o
@@ -13,8 +16,8 @@ debug
 *.so
 
 # Folders
-_obj
-_test
+_obj/
+_test/
 
 # Architecture specific extensions/prefixes
 *.[568vq]

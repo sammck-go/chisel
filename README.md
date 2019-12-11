@@ -1,6 +1,6 @@
 # chisel
 
-[![GoDoc](https://godoc.org/github.com/jpillora/chisel?status.svg)](https://godoc.org/github.com/jpillora/chisel)
+[![GoDoc](https://godoc.org/github.com/XevoInc/chisel?status.svg)](https://godoc.org/github.com/XevoInc/chisel)
 
 Chisel is a fast TCP tunnel, transported over HTTP, secured via SSH. Single executable including both client and server. Written in Go (golang). Chisel is mainly useful for passing through firewalls, though it can also be used to provide a secure endpoint into your network. Chisel is very similar to [crowbar](https://github.com/q3k/crowbar) though achieves **much** higher [performance](#performance).
 
@@ -23,9 +23,9 @@ Chisel is a fast TCP tunnel, transported over HTTP, secured via SSH. Single exec
 
 **Binaries**
 
-[![Releases](https://img.shields.io/github/release/jpillora/chisel.svg)](https://github.com/jpillora/chisel/releases) [![Releases](https://img.shields.io/github/downloads/jpillora/chisel/total.svg)](https://github.com/jpillora/chisel/releases)
+[![Releases](https://img.shields.io/github/release/jpillora/chisel.svg)](https://github.com/XevoInc/chisel/releases) [![Releases](https://img.shields.io/github/downloads/jpillora/chisel/total.svg)](https://github.com/XevoInc/chisel/releases)
 
-See [the latest release](https://github.com/jpillora/chisel/releases/latest) or download and install it now with `curl https://i.jpillora.com/chisel! | bash`
+See [the latest release](https://github.com/XevoInc/chisel/releases/latest) or download and install it now with `curl https://i.jpillora.com/chisel! | bash`
 
 **Docker**
 
@@ -38,7 +38,7 @@ docker run --rm -it jpillora/chisel --help
 **Source**
 
 ```sh
-$ go get -v github.com/jpillora/chisel
+$ go get -v github.com/XevoInc/chisel
 ```
 
 ### Demo
@@ -74,7 +74,7 @@ $ chisel --help
      client - runs chisel in client mode
 
    Read more:
-     https://github.com/jpillora/chisel
+     https://github.com/XevoInc/chisel
 ```
 
 ```
@@ -137,7 +137,7 @@ $ chisel server --help
     X.Y.Z
 
   Read more:
-    https://github.com/jpillora/chisel
+    https://github.com/XevoInc/chisel
 
 
 ```
@@ -234,7 +234,7 @@ $ chisel client --help
     X.Y.Z
 
   Read more:
-    https://github.com/jpillora/chisel
+    https://github.com/XevoInc/chisel
 
 
 ```
@@ -257,7 +257,7 @@ Internally, this is done using the _Password_ authentication method provided by 
 docker run \
   --name chisel -p 9312:9312 \
   -d --restart always \
-  jpillora/chisel server -p 9312 --socks5 --key supersecret
+  jpillara/chisel server -p 9312 --socks5 --key supersecret
 ```
 
 2. Connect your chisel client (using server's fingerprint)
@@ -354,9 +354,9 @@ See more [test/](test/)
 
 - http://golang.org/doc/code.html
 - http://golang.org/doc/effective_go.html
-- `github.com/jpillora/chisel/share` contains the shared package
-- `github.com/jpillora/chisel/server` contains the server package
-- `github.com/jpillora/chisel/client` contains the client package
+- `github.com/XevoInc/chisel/share` contains the shared package
+- `github.com/XevoInc/chisel/server` contains the server package
+- `github.com/XevoInc/chisel/client` contains the client package
 
 ### Changelog
 
