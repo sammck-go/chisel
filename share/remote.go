@@ -43,17 +43,14 @@ type Remote struct {
 const revPrefix = "R:"
 
 func DecodeRemote(s string) (*Remote, error) {
-	if true {
-		return nil, errors.New("'stdio' not implemented")
-	}
 	reverse := false
 	if strings.HasPrefix(s, revPrefix) {
 		s = strings.TrimPrefix(s, revPrefix)
 		reverse = true
 	}
-	is_stdio := (s == "stdio")
-	r := &Remote{Reverse: reverse, LocalStdio: is_stdio}
-	if is_stdio && reverse {
+	isStdio := (s == "stdio")
+	r := &Remote{Reverse: reverse, LocalStdio: isStdio}
+	if isStdio && reverse {
 		return nil, errors.New("'stdio' incompatible with reverse port forwarding")
 	}
 	parts := strings.Split(s, ":")
@@ -61,61 +58,60 @@ func DecodeRemote(s string) (*Remote, error) {
 		return nil, errors.New("Invalid remote")
 	}
 
-	have_local_host := false
-	have_local_port := false
-	have_remote_host := false
-	have_remote_port := false
+	haveLocalHost := false
+	haveLocalPort := false
+	haveRemoteHost := false
+	haveRemotePort := false
 	for i := 0; i < len(parts); i++ {
 		p := parts[i]
-		if p == "stdio":
-		  if reverse {
-    		return nil, errors.New("'stdio' incompatible with reverse port forwarding")
+		if p == "stdio" {
+			if reverse {
+				return nil, errors.New("'stdio' incompatible with reverse port forwarding")
 			}
-			if have_local_host {
-    		return nil, errors.New("'stdio' can only be specified for local end")
+			if haveLocalHost {
+				return nil, errors.New("'stdio' can only be specified for local end")
 			}
 			r.LocalStdio = true
-			have_local_host = true
-			have_local_port = true
+			haveLocalHost = true
+			haveLocalPort = true
 		} else if p == "socks" {
 			if reverse {
 				// TODO allow reverse+socks by having client
 				// automatically start local SOCKS5 server
 				return nil, errors.New("'socks' incompatible with reverse port forwarding")
 			}
-			if have_remote_host {
+			if haveRemoteHost {
 				return nil, errors.New("'socks' cannot be commbined with remote host specifier")
 			}
 			r.Socks = true
-			have_local_host = true
-			have_local_port = true
-			have_remote_host = true
-			have_remote_port = true
-		}
-		if isPort(p) {
-			if have_local_port {
+			haveLocalHost = true
+			haveLocalPort = true
+			haveRemoteHost = true
+			haveRemotePort = true
+		} else if isPort(p) {
+			if haveLocalPort {
 				r.RemotePort = p
-				have_remote_host = true
-				have_remote_port = true
+				haveRemoteHost = true
+				haveRemotePort = true
 			} else {
 				r.LocalPort = p
-				have_local_host = true
-				have_local_port = true
+				haveLocalHost = true
+				haveLocalPort = true
 			}
 		} else {
 			if !isHost(p) {
-  			return nil, errors.New("Invalid host")
+				return nil, errors.New("Invalid host")
 			}
-			if have_local_host {
+			if haveLocalHost {
 				r.RemoteHost = p
-				have_local_port = true
-				have_remote_host = true
+				haveLocalPort = true
+				haveRemoteHost = true
 			} else {
 				r.LocalHost = p
-				have_local_host = p
+				haveLocalHost = true
 			}
 		}
-		if have_remote_port && i + 1 < len(parts) {
+		if haveRemotePort && i+1 < len(parts) {
 			return nil, errors.New("Too many parts in remote specifier")
 		}
 	}
@@ -144,11 +140,11 @@ func DecodeRemote(s string) (*Remote, error) {
 		r.LocalPort = r.RemotePort
 	}
 
-	if !r.Socks and r.RemotePort == "" {
+	if !r.Socks && r.RemotePort == "" {
 		return nil, errors.New("Remote port number is required")
 	}
 
-	if !r.Stdio and r.LocalPort == "" {
+	if !r.LocalStdio && r.LocalPort == "" {
 		return nil, errors.New("Local port number is required")
 	}
 

@@ -44,7 +44,7 @@ func (u *Users) Set(key string, user *User) {
 	u.Unlock()
 }
 
-// Delete a users from the list
+// Del deletes a user from the list
 func (u *Users) Del(key string) {
 	u.Lock()
 	delete(u.inner, key)

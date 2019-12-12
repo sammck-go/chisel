@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
+	chshare "github.com/XevoInc/chisel/share"
 	"github.com/gorilla/websocket"
 	"github.com/jpillora/backoff"
-	"github.com/XevoInc/chisel/share"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -132,12 +132,9 @@ func (c *Client) Start(ctx context.Context) error {
 	if c.httpProxyURL != nil {
 		via = " via " + c.httpProxyURL.String()
 	}
-	//prepare non-reverse proxies
+	//prepare non-reverse proxies (other than stdio proxy, which we defer til we have a good connection)
 	for i, r := range c.config.shared.Remotes {
-		c.Infof("Info level")
-		c.Debugf("Debug level %s", r)
-
-		if !r.Reverse {
+		if !r.Reverse && !r.LocalStdio {
 			proxy := chshare.NewTCPProxy(c.Logger, func() ssh.Conn { return c.sshConn }, i, r)
 			if err := proxy.Start(ctx); err != nil {
 				return err
@@ -150,7 +147,7 @@ func (c *Client) Start(ctx context.Context) error {
 		go c.keepAliveLoop()
 	}
 	//connection loop
-	go c.connectionLoop()
+	go c.connectionLoop(ctx)
 	return nil
 }
 
@@ -163,9 +160,10 @@ func (c *Client) keepAliveLoop() {
 	}
 }
 
-func (c *Client) connectionLoop() {
+func (c *Client) connectionLoop(ctx context.Context) {
 	//connection loop!
 	var connerr error
+	stdioStarted := false
 	b := &backoff.Backoff{Max: c.config.MaxRetryInterval}
 	for c.running {
 		if connerr != nil {
@@ -244,6 +242,22 @@ func (c *Client) connectionLoop() {
 		b.Reset()
 		c.sshConn = sshConn
 		go ssh.DiscardRequests(reqs)
+
+		if !stdioStarted {
+			stdioStarted = true
+			//prepare stdio proxy, which we deferred til we had a good connection)
+			for i, r := range c.config.shared.Remotes {
+				if !r.Reverse && r.LocalStdio {
+					proxy := chshare.NewTCPProxy(c.Logger, func() ssh.Conn { return c.sshConn }, i, r)
+					if err := proxy.Start(ctx); err != nil {
+						c.Infof("Start of stdio proxy failed: %s", err)
+						// TODO: stop the client
+					}
+					break
+				}
+			}
+		}
+
 		go c.connectStreams(chans)
 		err = sshConn.Wait()
 		//disconnected
