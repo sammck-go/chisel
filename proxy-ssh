@@ -16,4 +16,4 @@ if [ -z "$CHISEL_SERVER" ]; then
  exit 1
 fi
 
-ssh -o ProxyCommand="$SCRIPT_DIR/chisel client --keepalive 2m '$CHISEL_SERVER' stdio:22 2>/dev/null" "$@"
+ssh -o ProxyCommand="$SCRIPT_DIR/chisel client --keepalive 2m '$CHISEL_SERVER' stdio:%h:%p 2>/dev/null" "$@"
