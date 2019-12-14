@@ -1,4 +1,5 @@
 package chshare
+/*
 
 import (
 	"errors"
@@ -7,40 +8,9 @@ import (
 	"strings"
 )
 
-// short-hand conversions
-//   3000 ->
-//     local  127.0.0.1:3000
-//     remote 127.0.0.1:3000
-//   foobar.com:3000 ->
-//     local  127.0.0.1:3000
-//     remote foobar.com:3000
-//   3000:google.com:80 ->
-//     local  127.0.0.1:3000
-//     remote google.com:80
-//   192.168.0.1:3000:google.com:80 ->
-//     local  192.168.0.1:3000
-//     remote google.com:80
-
-// Remote is a data structure describing a proxied port, which may either be a standard
-// forward proxy (client-side proxy listens for a local connection and then server-side proxy
-// creates a connection to a service reachable by the server-side) or a reverse proxy
-// (server-side proxy listens for a local connection, and then client-side creates a
-// connection to a service reachable by the client-side.
-//
-// Note that in this data structure, LocalHost:LocalPort always refers to the listening
-// side bind address and port (on the client for normal proxy, and the server for reverse proxy).
-// Similarly, RemoteHost:RemotePort always refers to the Dial destination endpoint ( on the
-// server for normal proxy, and the client for reverse proxy)
-//
-// If LocalStdio is true, then LocalHost:LocalPort are ignored, no listen/accept is performed,
-// and instead os.Stdin and os.Stdout are immediately connected and used as the local end of
-// the proxied connection.
-type Remote struct {
-	LocalHost, LocalPort, RemoteHost, RemotePort string
-	LocalStdio, Socks, Reverse                   bool
-}
-
 const revPrefix = "R:"
+
+
 
 func DecodeRemote(s string) (*Remote, error) {
 	reverse := false
@@ -188,3 +158,4 @@ func (r *Remote) Remote() string {
 	}
 	return r.RemoteHost + ":" + r.RemotePort
 }
+*/

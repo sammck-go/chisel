@@ -302,7 +302,7 @@ func client(args []string) {
 		MaxRetryInterval: *maxRetryInterval,
 		HTTPProxy:        *proxy,
 		Server:           args[0],
-		Remotes:          args[1:],
+		ChdStrings:       args[1:],
 		HostHeader:       *hostname,
 	})
 	if err != nil {

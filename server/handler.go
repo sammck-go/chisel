@@ -2,6 +2,7 @@ package chserver
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -101,8 +102,8 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 			v, chshare.BuildVersion)
 	}
 	//confirm reverse tunnels are allowed
-	for _, r := range c.Remotes {
-		if r.Reverse && !s.reverseOk {
+	for _, chd := range c.ChannelDescriptors {
+		if chd.Reverse && !s.reverseOk {
 			clog.Debugf("Denied reverse port forwarding request, please enable --reverse")
 			failed(s.Errorf("Reverse port forwaring not enabled on server"))
 			return
@@ -111,15 +112,10 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 	//if user is provided, ensure they have
 	//access to the desired remotes
 	if user != nil {
-		for _, r := range c.Remotes {
-			var addr string
-			if r.Reverse {
-				addr = "R:" + r.LocalHost + ":" + r.LocalPort
-			} else {
-				addr = r.RemoteHost + ":" + r.RemotePort
-			}
-			if !user.HasAccess(addr) {
-				failed(s.Errorf("access to '%s' denied", addr))
+		for _, chd := range c.ChannelDescriptors {
+			chdString := chd.String()
+			if !user.HasAccess(chdString) {
+				failed(s.Errorf("access to '%s' denied", chdString))
 				return
 			}
 		}
@@ -127,10 +123,10 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 	//set up reverse port forwarding
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	for i, r := range c.Remotes {
-	  clog.Debugf("Remote %s", r)
-		if r.Reverse {
-			proxy := chshare.NewTCPProxy(s.Logger, func() ssh.Conn { return sshConn }, i, r)
+	for i, chd := range c.ChannelDescriptors {
+	  clog.Debugf("%s", chd.LongString())
+		if chd.Reverse {
+			proxy := chshare.NewTCPProxy(s.Logger, func() ssh.Conn { return sshConn }, i, chd)
 			if err := proxy.Start(ctx); err != nil {
 				failed(s.Errorf("%s", err))
 				return
@@ -154,6 +150,7 @@ func (s *Server) handleSSHRequests(clientLog *chshare.Logger, reqs <-chan *ssh.R
 			r.Reply(true, nil)
 		default:
 			clientLog.Debugf("Unknown request: %s", r.Type)
+			r.Reply(false, []byte(fmt.Sprintf("Unknown request type: %s", r.Type)))
 		}
 	}
 }

@@ -27,7 +27,7 @@ type Config struct {
 	MaxRetryInterval time.Duration
 	Server           string
 	HTTPProxy        string
-	Remotes          []string
+	ChdStrings       []string
 	HostHeader       string
 }
 
@@ -68,12 +68,12 @@ func NewClient(config *Config) (*Client, error) {
 	//swap to websockets scheme
 	u.Scheme = strings.Replace(u.Scheme, "http", "ws", 1)
 	shared := &chshare.Config{}
-	for _, s := range config.Remotes {
-		r, err := chshare.DecodeRemote(s)
+	for _, s := range config.ChdStrings {
+		chd, err := chshare.ParseChannelDescriptor(s)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to decode remote '%s': %s", s, err)
+			return nil, fmt.Errorf("Failed to parse channel descriptor string '%s': %s", s, err)
 		}
-		shared.Remotes = append(shared.Remotes, r)
+		shared.ChannelDescriptors = append(shared.ChannelDescriptors, chd)
 	}
 	config.shared = shared
 	client := &Client{
@@ -133,9 +133,9 @@ func (c *Client) Start(ctx context.Context) error {
 		via = " via " + c.httpProxyURL.String()
 	}
 	//prepare non-reverse proxies (other than stdio proxy, which we defer til we have a good connection)
-	for i, r := range c.config.shared.Remotes {
-		if !r.Reverse && !r.LocalStdio {
-			proxy := chshare.NewTCPProxy(c.Logger, func() ssh.Conn { return c.sshConn }, i, r)
+	for i, chd := range c.config.shared.ChannelDescriptors {
+		if !chd.Reverse && chd.Stub.Type != chshare.ChannelEndpointTypeStdio {
+			proxy := chshare.NewTCPProxy(c.Logger, func() ssh.Conn { return c.sshConn }, i, chd)
 			if err := proxy.Start(ctx); err != nil {
 				return err
 			}
@@ -246,9 +246,9 @@ func (c *Client) connectionLoop(ctx context.Context) {
 		if !stdioStarted {
 			stdioStarted = true
 			//prepare stdio proxy, which we deferred til we had a good connection)
-			for i, r := range c.config.shared.Remotes {
-				if !r.Reverse && r.LocalStdio {
-					proxy := chshare.NewTCPProxy(c.Logger, func() ssh.Conn { return c.sshConn }, i, r)
+			for i, chd := range c.config.shared.ChannelDescriptors {
+				if !chd.Reverse && chd.Stub.Type == chshare.ChannelEndpointTypeStdio {
+					proxy := chshare.NewTCPProxy(c.Logger, func() ssh.Conn { return c.sshConn }, i, chd)
 					if err := proxy.Start(ctx); err != nil {
 						c.Infof("Start of stdio proxy failed: %s", err)
 						// TODO: stop the client

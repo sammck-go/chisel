@@ -17,27 +17,28 @@ type TCPProxy struct {
 	ssh    GetSSHConn
 	id     int
 	count  int
-	remote *Remote
+	chd *ChannelDescriptor
 }
 
-func NewTCPProxy(logger *Logger, ssh GetSSHConn, index int, remote *Remote) *TCPProxy {
+func NewTCPProxy(logger *Logger, ssh GetSSHConn, index int, chd *ChannelDescriptor) *TCPProxy {
 	id := index + 1
 	return &TCPProxy{
-		Logger: logger.Fork("proxy#%d:%s", id, remote),
+		Logger: logger.Fork("proxy#%d:%s", id, chd),
 		ssh:    ssh,
 		id:     id,
-		remote: remote,
+		chd:    chd,
 	}
 }
 
 func (p *TCPProxy) Start(ctx context.Context) error {
-	if p.remote.LocalStdio {
+	if p.chd.Stub.Type == ChannelEndpointTypeStdio {
 		src := NewStdioPipePair(p.Logger)
 		go p.accept(src)
 	} else {
-		l, err := net.Listen("tcp4", p.remote.LocalHost+":"+p.remote.LocalPort)
+		// TODO: support IPV6
+		l, err := net.Listen("tcp4", p.chd.Stub.Path)
 		if err != nil {
-			return fmt.Errorf("%s: %s", p.Logger.Prefix(), err)
+			return fmt.Errorf("%s: TCP listen failed for path '%s': %s", p.Logger.Prefix(), p.chd.Stub.Path, err)
 		}
 		go p.listen(ctx, l)
 	}
@@ -82,8 +83,9 @@ func (p *TCPProxy) accept(src io.ReadWriteCloser) {
 		l.Debugf("No remote connection, exiting proxy")
 		return
 	}
-	//ssh request for tcp connection for this proxy's remote
-	dst, reqs, err := sshConn.OpenChannel("chisel", []byte(p.remote.Remote()))
+	//ssh request for tcp connection for this proxy's remote skeleton endpoint
+	skeletonEndpointStr := p.chd.Skeleton.String()
+	dst, reqs, err := sshConn.OpenChannel("chisel", []byte(skeletonEndpointStr))
 	if err != nil {
 		l.Infof("Stream error: %s", err)
 		return
