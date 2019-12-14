@@ -2,14 +2,16 @@ package chserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	chshare "github.com/XevoInc/chisel/share"
 	"golang.org/x/crypto/ssh"
-	"github.com/XevoInc/chisel/share"
 )
 
 // handleClientHandler is the main http websocket handler for the chisel server
@@ -17,7 +19,7 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 	//websockets upgrade AND has chisel prefix
 	upgrade := strings.ToLower(r.Header.Get("Upgrade"))
 	protocol := r.Header.Get("Sec-WebSocket-Protocol")
-	if upgrade == "websocket" && strings.HasPrefix(protocol, "chisel-") {
+	if upgrade == "websocket" && strings.HasPrefix(protocol, "xevo-chisel-") {
 		if protocol == chshare.ProtocolVersion {
 			s.handleWebsocket(w, r)
 			return
@@ -49,6 +51,7 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 	id := atomic.AddInt32(&s.sessCount, 1)
 	clog := s.Fork("session#%d", id)
+	clog.Debugf("Upgrading to websocket")
 	wsConn, err := upgrader.Upgrade(w, req, nil)
 	if err != nil {
 		clog.Debugf("Failed to upgrade (%s)", err)
@@ -124,7 +127,7 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	for i, chd := range c.ChannelDescriptors {
-	  clog.Debugf("%s", chd.LongString())
+		clog.Debugf("%s", chd.LongString())
 		if chd.Reverse {
 			proxy := chshare.NewTCPProxy(s.Logger, func() ssh.Conn { return sshConn }, i, chd)
 			if err := proxy.Start(ctx); err != nil {
@@ -157,15 +160,45 @@ func (s *Server) handleSSHRequests(clientLog *chshare.Logger, reqs <-chan *ssh.R
 
 func (s *Server) handleSSHChannels(clientLog *chshare.Logger, chans <-chan ssh.NewChannel) {
 	for ch := range chans {
-		remote := string(ch.ExtraData())
-		socks := remote == "socks"
+		epdJSON := ch.ExtraData()
+		var epd chshare.ChannelEndpointDescriptor
+		err := json.Unmarshal(epdJSON, &epd)
+		if err != nil {
+			clientLog.Debugf("Error: Remote channel connect request: bad JSON parameter string: '%s'", epdJSON)
+			ch.Reject(ssh.UnknownChannelType, "Bad JSON ExtraData")
+			continue
+		}
+		clientLog.Debugf("Remote channel connect request, endpoint ='%s'", epd.LongString())
+		if epd.Role != chshare.ChannelEndpointRoleSkeleton {
+			clientLog.Debugf("Error: Remote channel connect request: Role must be skeleton: '%s'", epd.LongString())
+			ch.Reject(ssh.Prohibited, "Role must be skeleton")
+			continue
+		}
+		if epd.Type == chshare.ChannelEndpointTypeStdio {
+			clientLog.Debugf("Error: Remote channel connect request: Server-side skeleton STDIO not supported: '%s'", epd.LongString())
+			ch.Reject(ssh.Prohibited, "Server-side STDIO not supported")
+			continue
+		}
+		if epd.Type == chshare.ChannelEndpointTypeLoop {
+			clientLog.Debugf("Error: Remote channel connect request: Loop channels not yet not supported: '%s'", epd.LongString())
+			ch.Reject(ssh.Prohibited, "Loop channels not yet supported")
+			continue
+		}
+		if epd.Type == chshare.ChannelEndpointTypeUnix {
+			clientLog.Debugf("Error: Remote channel connect request: Unix domain sockets not yet not supported: '%s'", epd.LongString())
+			ch.Reject(ssh.Prohibited, "Unix domain sockets not yet supported")
+			continue
+		}
+		socks := epd.Type == chshare.ChannelEndpointTypeSocks
 		//dont accept socks when --socks5 isn't enabled
 		if socks && s.socksServer == nil {
 			clientLog.Debugf("Denied socks request, please enable --socks5")
 			ch.Reject(ssh.Prohibited, "SOCKS5 is not enabled on the server")
 			continue
 		}
-		//accept rest
+
+		// TODO: The actual local connect request should succeed before we accept the remote request.
+		//       Need to refactor code here
 		stream, reqs, err := ch.Accept()
 		if err != nil {
 			clientLog.Debugf("Failed to accept stream: %s", err)
@@ -177,7 +210,7 @@ func (s *Server) handleSSHChannels(clientLog *chshare.Logger, chans <-chan ssh.N
 		if socks {
 			go s.handleSocksStream(clientLog.Fork("socksconn#%d", connID), stream)
 		} else {
-			go chshare.HandleTCPStream(clientLog.Fork("conn#%d", connID), &s.connStats, stream, remote)
+			go chshare.HandleTCPStream(clientLog.Fork("conn#%d", connID), &s.connStats, stream, epd.Path)
 		}
 	}
 }

@@ -2,22 +2,22 @@ package chshare
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"io"
-	"net"
-
 	"github.com/jpillora/sizestr"
 	"golang.org/x/crypto/ssh"
+	"io"
+	"net"
 )
 
 type GetSSHConn func() ssh.Conn
 
 type TCPProxy struct {
 	*Logger
-	ssh    GetSSHConn
-	id     int
-	count  int
-	chd *ChannelDescriptor
+	ssh   GetSSHConn
+	id    int
+	count int
+	chd   *ChannelDescriptor
 }
 
 func NewTCPProxy(logger *Logger, ssh GetSSHConn, index int, chd *ChannelDescriptor) *TCPProxy {
@@ -84,8 +84,12 @@ func (p *TCPProxy) accept(src io.ReadWriteCloser) {
 		return
 	}
 	//ssh request for tcp connection for this proxy's remote skeleton endpoint
-	skeletonEndpointStr := p.chd.Skeleton.String()
-	dst, reqs, err := sshConn.OpenChannel("chisel", []byte(skeletonEndpointStr))
+	skeletonEndpointJSON, err := json.Marshal(p.chd.Skeleton)
+	if err != nil {
+		l.Infof("Unable to serialize endpoint descriptor '%s': %s", p.chd.Skeleton.LongString(), err)
+		return
+	}
+	dst, reqs, err := sshConn.OpenChannel("chisel", skeletonEndpointJSON)
 	if err != nil {
 		l.Infof("Stream error: %s", err)
 		return

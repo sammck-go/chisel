@@ -2,6 +2,7 @@ package chclient
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -286,6 +287,7 @@ func (c *Client) Close() error {
 	return c.sshConn.Close()
 }
 
+/*
 func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
 	for ch := range chans {
 		remote := string(ch.ExtraData())
@@ -297,5 +299,57 @@ func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
 		go ssh.DiscardRequests(reqs)
 		l := c.Logger.Fork("conn#%d", c.connStats.New())
 		go chshare.HandleTCPStream(l, &c.connStats, stream, remote)
+	}
+}
+*/
+
+func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
+	for ch := range chans {
+		epdJSON := ch.ExtraData()
+		var epd chshare.ChannelEndpointDescriptor
+		err := json.Unmarshal(epdJSON, &epd)
+		if err != nil {
+			c.Debugf("Error: Remote channel connect request: bad JSON parameter string: '%s'", epdJSON)
+			ch.Reject(ssh.UnknownChannelType, "Bad JSON ExtraData")
+			continue
+		}
+		c.Debugf("Remote channel connect request, endpoint ='%s'", epd.LongString())
+		if epd.Role != chshare.ChannelEndpointRoleSkeleton {
+			c.Debugf("Error: Remote channel connect request: Role must be skeleton: '%s'", epd.LongString())
+			ch.Reject(ssh.Prohibited, "Endpoint role must be skeleton")
+			continue
+		}
+		if epd.Type == chshare.ChannelEndpointTypeStdio {
+			c.Debugf("Error: Remote channel connect request: Client-side skeleton STDIO not yet supported: '%s'", epd.LongString())
+			ch.Reject(ssh.Prohibited, "Client-side skeleton STDIO not yet supported")
+			continue
+		}
+		if epd.Type == chshare.ChannelEndpointTypeLoop {
+			c.Debugf("Error: Remote channel connect request: Loop channels not yet not supported: '%s'", epd.LongString())
+			ch.Reject(ssh.Prohibited, "Loop channels not yet supported")
+			continue
+		}
+		if epd.Type == chshare.ChannelEndpointTypeUnix {
+			c.Debugf("Error: Remote channel connect request: Unix domain sockets not yet not supported: '%s'", epd.LongString())
+			ch.Reject(ssh.Prohibited, "Unix domain sockets not yet supported")
+			continue
+		}
+		if epd.Type == chshare.ChannelEndpointTypeSocks {
+			c.Debugf("Error: Remote channel connect request: client-side SOCKS endpoint not yet not supported: '%s'", epd.LongString())
+			ch.Reject(ssh.Prohibited, "Client-side SOCKS endpoint not yet supported")
+			continue
+		}
+
+		// TODO: The actual local connect request should succeed before we accept the remote request.
+		//       Need to refactor code here
+		stream, reqs, err := ch.Accept()
+		if err != nil {
+			c.Debugf("Failed to accept remote stream: %s", err)
+			continue
+		}
+		go ssh.DiscardRequests(reqs)
+		//handle stream type
+		l := c.Logger.Fork("conn#%d", c.connStats.New())
+		go chshare.HandleTCPStream(l, &c.connStats, stream, epd.Path)
 	}
 }

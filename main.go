@@ -178,11 +178,11 @@ func server(args []string) {
 		Proxy:    *proxy,
 		Socks5:   *socks5,
 		Reverse:  *reverse,
+		Debug: *verbose,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	s.Debug = *verbose
 	if *pid {
 		generatePidFile()
 	}

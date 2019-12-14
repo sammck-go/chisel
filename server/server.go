@@ -15,7 +15,7 @@ import (
 	"github.com/jpillora/requestlog"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/XevoInc/chisel/share"
+	chshare "github.com/XevoInc/chisel/share"
 )
 
 // Config is the configuration for the chisel service
@@ -26,6 +26,7 @@ type Config struct {
 	Proxy    string
 	Socks5   bool
 	Reverse  bool
+	Debug    bool
 }
 
 // Server respresent a chisel service
@@ -58,6 +59,7 @@ func NewServer(config *Config) (*Server, error) {
 		reverseOk:  config.Reverse,
 	}
 	s.Info = true
+	s.Debug = config.Debug
 	s.users = chshare.NewUserIndex(s.Logger)
 	if config.AuthFile != "" {
 		if err := s.users.LoadUsers(config.AuthFile); err != nil {
