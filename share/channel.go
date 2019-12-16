@@ -1,13 +1,12 @@
 package chshare
 
 import (
+	"context"
 	"fmt"
-	// "net/url"
 	"io"
-	"regexp"
 	"strconv"
 	"strings"
-	// "github.com/golang-collections/collections/stack"
+	"sync"
 )
 
 // To distinguish between the various entities in a tunneled
@@ -216,6 +215,7 @@ type ChannelEndpointDescriptor struct {
 	Path string `json:"path"`
 }
 
+// Validate a ChannelEndpointDescriptor
 func (d ChannelEndpointDescriptor) Validate() error {
 	if d.Role != ChannelEndpointRoleStub && d.Role != ChannelEndpointRoleSkeleton {
 		return fmt.Errorf("%s: Unknown role type '%s'", d.String(), d.Role)
@@ -224,21 +224,24 @@ func (d ChannelEndpointDescriptor) Validate() error {
 		if d.Path == "" {
 			if d.Role == ChannelEndpointRoleStub {
 				return fmt.Errorf("%s: TCP stub endpoint requires a bind address and port", d.String())
-			} else {
-				return fmt.Errorf("%s: TCP skeleton endpoint requires a target hostname and port", d.String())
 			}
-		} else {
-			_, port, err := ParseHostPort(d.Path, InvalidPort)
-			if err != nil {
-				if d.Role == ChannelEndpointRoleStub {
-					return fmt.Errorf("%s: TCP stub endpoint <bind-address>:<port> is invalid: %v", d.String(), err)
-				} else {
-					return fmt.Errorf("%s: TCP skeleton endpoint <hostname>:<port> is invalied: %v", d.String(), err)
-				}
+			return fmt.Errorf("%s: TCP skeleton endpoint requires a target hostname and port", d.String())
+		}
+		host, port, err := ParseHostPort(d.Path, "", InvalidPortNumber)
+		if err != nil {
+			if d.Role == ChannelEndpointRoleStub {
+				return fmt.Errorf("%s: TCP stub endpoint <bind-address>:<port> is invalid: %v", d.String(), err)
 			}
-			if port == InvalidPort {
-				return fmt.Errorf("%s: TCP endpoint requires a port number", d.String())
+			return fmt.Errorf("%s: TCP skeleton endpoint <hostname>:<port> is invalid: %v", d.String(), err)
+		}
+		if host == "" {
+			if d.Role == ChannelEndpointRoleStub {
+				return fmt.Errorf("%s: TCP stub endpoint requires a bind address: %v", d.String(), err)
 			}
+			return fmt.Errorf("%s: TCP skeleton endpoint requires a target hostname: %v", d.String(), err)
+		}
+		if port == InvalidPortNumber {
+			return fmt.Errorf("%s: TCP endpoint requires a port number", d.String())
 		}
 	} else if d.Type == ChannelEndpointTypeUnix {
 		if d.Path == "" {
@@ -274,6 +277,7 @@ func (d ChannelEndpointDescriptor) String() string {
 	return "<" + typeName + ":" + pathName + ">"
 }
 
+// LongString converts a ChannelEndpointDescriptor to a long descriptive string
 func (d ChannelEndpointDescriptor) LongString() string {
 	roleName := string(d.Role)
 	if roleName == "" {
@@ -299,14 +303,15 @@ type ChannelDescriptor struct {
 	// Stub is the endpoint that listens for and accepts local connections, and forwards
 	// them to the remote proxy. Ordinarily the Stub is on the client proxy, but this
 	// is flipped if Reverse==true.
-	Stub ChannelEndpointDescriptor
+	Stub *ChannelEndpointDescriptor
 
 	// Skeleton is the endpoint that receives connect requests from the remote proxy
 	// and forwards them to locally accessible network services. Ordinarily the
 	// Skeleton is on the server proxy, but this is flipped if Reverse==true.
-	Skeleton ChannelEndpointDescriptor
+	Skeleton *ChannelEndpointDescriptor
 }
 
+// Validate a ChannelDescriptor
 func (d ChannelDescriptor) Validate() error {
 	err := d.Stub.Validate()
 	if err != nil {
@@ -339,6 +344,7 @@ func (d ChannelDescriptor) String() string {
 	return reversePrefix + d.Stub.String() + ":" + d.Skeleton.String()
 }
 
+// LongString converts a ChannelDescriptor to a long descriptive string
 func (d ChannelDescriptor) LongString() string {
 	reverseStr := "false"
 	if d.Reverse {
@@ -409,17 +415,23 @@ func (s *bracketStack) isBalanced() bool {
 	return s.n == 0
 }
 
-// SplitChannelDescriptorParts breaks a ":"-delimited channel descriptor string
-// into its parts, respecting the various escaping mechanisms described above.
-func SplitChannelDescriptorParts(s string) ([]string, error) {
-
+// SplitBracketedParts breaks a ":"-delimited channel descriptor string
+// into its parts, respecting the following escaping mechanisms:
+//
+//    * Except as indicated below, the presence of '[' or '<' anywhere in a descriptor element causes all
+//        characters up to a balanced closing bracket to be included as part of the parsed element.
+//    '\:' will be a converted to a single ':' within an element but will not be recognized as a delimiter
+//    '\\' will be converted to a single '\' within an element
+//    '\<' Will be converted to a single '<' and will not be considered for bracket balancing
+//    '\>' will be converted to a single '>' and will not be considered for bracket balancing
+//    '\[' Will be converted to a single '[' and will not be considered for bracket balancing
+//    '\]' will be converted to a single ']' and will not be considered for bracket balancing
+func SplitBracketedParts(s string) ([]string, error) {
 	bStack := &bracketStack{}
 
 	var result []string
 	partial := ""
 	haveBackslash := false
-	stripAngleBrackets := false
-	startingElement := true
 	closeToOpen := map[rune]rune{
 		'>': '<',
 		']': '[',
@@ -433,10 +445,6 @@ func SplitChannelDescriptorParts(s string) ([]string, error) {
 			return fmt.Errorf("SplitChannelDescriptorParts: descriptor ends in backslash: '%s'", s)
 		}
 		if !(final && len(partial) == 0 && len(result) == 0) {
-			if stripAngleBrackets {
-				partial = partial[1 : len(partial)-1]
-				stripAngleBrackets = false
-			}
 			result = append(result, partial)
 			partial = ""
 		}
@@ -444,8 +452,6 @@ func SplitChannelDescriptorParts(s string) ([]string, error) {
 	}
 
 	for _, c := range s {
-		wasStartingElement := startingElement
-		startingElement = false
 		if haveBackslash {
 			partial += string(c)
 			haveBackslash = false
@@ -457,9 +463,6 @@ func SplitChannelDescriptorParts(s string) ([]string, error) {
 		} else if c == '<' {
 			partial += string(c)
 			bStack.pushBracket('<')
-			if wasStartingElement {
-				stripAngleBrackets = true
-			}
 		} else if c == '>' || c == ']' {
 			if bStack.isBalanced() {
 				return nil, fmt.Errorf("SplitChannelDescriptorParts: unmatched '%c' in descriptor '%s'", c, s)
@@ -477,7 +480,6 @@ func SplitChannelDescriptorParts(s string) ([]string, error) {
 			if err != nil {
 				return nil, err
 			}
-			startingElement = true
 		} else {
 			partial += string(c)
 		}
@@ -490,42 +492,305 @@ func SplitChannelDescriptorParts(s string) ([]string, error) {
 	return result, nil
 }
 
-const revPrefix = "R"
+// PortNumber is a TCP port number in the range 0-65535. 0 is defined as UnknownPortNumber
+// and 65535 is defined as InvalidPortNumber
+type PortNumber uint16
 
-const InvalidPort = -1
+// UnknownPortNumber is an unknown TCP port number. The zero value for PortNumber
+const UnknownPortNumber PortNumber = 0
 
-var isPortRegExp = regexp.MustCompile(`^\d+$`)
+// InvalidPortNumber is an invalid TCP port number. Equal to uint16(65535)
+const InvalidPortNumber PortNumber = 65535
 
-func isPort(s string) bool {
-	if !isPortRegExp.MatchString(s) {
-		return false
+// ParsePortNumber converts a string to a PortNumber
+//   An error will be returned if the string is not a valid integer in the range
+//   1-65534. If the string is 0, UnknownPortNumber will be returned as the
+//   value. All other error conditionss will return InvalidPortNumber as the value.
+func ParsePortNumber(s string) (PortNumber, error) {
+	p64, err := strconv.ParseUint(s, 10, 16)
+	if err != nil {
+		return InvalidPortNumber, fmt.Errorf("Invalid port number %s: %s", s, err)
 	}
-	return true
+	p := PortNumber(uint16(p64))
+	if p == InvalidPortNumber {
+		err = fmt.Errorf("65535 is a reserved invalid port number")
+	} else if p == UnknownPortNumber {
+		err = fmt.Errorf("0 is a reserved unknown port number")
+	}
+	return p, err
 }
 
-// ParseHostPort breaks a <hostname>:<port>, <bind-addr>:<port>,
-// <hostname>, or <bind-addr> into a tuple.
-func ParseHostPort(path string, defaultPort int) (string, int, error) {
-	lastColonPos := strings.LastIndex(path, ":")
-	if lastColonPos >= 0 {
-		lastBracketPos := strings.LastIndex(path, "]")
-		if lastBracketPos < lastColonPos {
-			host := path[:lastColonPos]
-			portStr := path[lastColonPos+1:]
-			portU64, err := strconv.ParseUint(portStr, 10, 16)
-			if err != nil {
-				return "", InvalidPort, err
+func (x PortNumber) String() string {
+	var result string
+	if x == InvalidPortNumber {
+		result = "<invalid>"
+	} else if x == UnknownPortNumber {
+		result = "<unknown>"
+	} else {
+		result = strconv.FormatUint(uint64(x), 10)
+	}
+	return result
+}
+
+// IsPortNumberString returns true if the string can be parsed into a valid TCP PortNumber
+func IsPortNumberString(s string) bool {
+	_, err := ParsePortNumber(s)
+	return err == nil
+}
+
+func isAngleBracketed(s string) bool {
+	if len(s) < 2 || s[0] != '<' || s[len(s)-1] != '>' {
+		return false
+	}
+
+	bStack := &bracketStack{}
+
+	haveBackslash := false
+	closePos := -1
+
+	for i, c := range s {
+		if haveBackslash {
+			haveBackslash = false
+		} else if c == '\\' {
+			haveBackslash = true
+		} else if c == '<' {
+			bStack.pushBracket('<')
+		} else if c == '>' || c == ']' {
+			bStack.popBracket()
+			if bStack.isBalanced() {
+				closePos = i
+				break
 			}
-			return host, int(portU64), nil
 		}
 	}
-	return path, defaultPort, nil
+
+	return closePos == len(s)-1
+}
+
+// StripAngleBrackets removes balanced leading and trailing '<' and '>' pair on a string, if they are present
+func StripAngleBrackets(s string) string {
+	if isAngleBracketed(s) {
+		s = s[1 : len(s)-1]
+	}
+	return s
+}
+
+// ParseHostPort breaks a <hostname>:<port>, <hostname>, or <port> into a tuple.
+//   <hostname> may contain balanced square or angle brackets, inside which ':'
+//   characters are not considered as a delimiter. This allows for IPV6 host/port
+//   specification such as [2001:0000:3238:DFE1:0063:0000:0000:FEFB]:80
+//   In addition the entire path or the host, (but not the port) may be enclosed in
+//   angle brackets, which will be stripped.
+func ParseHostPort(path string, defaultHost string, defaultPort PortNumber) (string, PortNumber, error) {
+	var port PortNumber
+	var host string
+
+	bpath := StripAngleBrackets(path)
+
+	parts, err := SplitBracketedParts(bpath)
+	if err != nil {
+		return "", InvalidPortNumber, fmt.Errorf("Invalid TCP host/port string: %s: %s", err, path)
+	}
+
+	if len(parts) > 2 {
+		return "", InvalidPortNumber, fmt.Errorf("Too many ':'-delimited parts in TCP host/port string: %s", path)
+	} else if len(parts) == 1 {
+		part := parts[0]
+		port, err = ParsePortNumber(part)
+		if err != nil {
+			port = UnknownPortNumber
+			host = StripAngleBrackets(part)
+		}
+	} else if len(parts) == 2 {
+		host = StripAngleBrackets(parts[0])
+		port, err = ParsePortNumber(parts[1])
+		if err != nil {
+			return "", InvalidPortNumber, fmt.Errorf("Invalid port in TCP host/port string: %s: %s", err, path)
+		}
+	}
+
+	if host == "" {
+		host = defaultHost
+	}
+
+	if port == UnknownPortNumber {
+		port = defaultPort
+	}
+
+	return host, port, nil
+}
+
+// ParseNextChannelEndpointDescriptor parses the next ChannelEndpointDescriptor out of a presplit ":"-delimited string,
+// returning the remainder of unparsed parts
+func ParseNextChannelEndpointDescriptor(parts []string, role ChannelEndpointRole) (*ChannelEndpointDescriptor, []string, error) {
+	s := strings.Join(parts, ":")
+	if len(parts) <= 0 {
+		return nil, parts, fmt.Errorf("Empty endpoint descriptor string not allowed: '%s'", s)
+	}
+
+	d := &ChannelEndpointDescriptor{Role: role}
+
+	haveType := false
+	havePath := false
+	lastI := len(parts) - 1
+
+	for i, p := range parts {
+		sp := StripAngleBrackets(p)
+		if sp == "stdio" {
+			if haveType {
+				break
+			}
+			d.Type = ChannelEndpointTypeStdio
+			lastI = i
+			break
+		} else if sp == "socks" {
+			if haveType {
+				break
+			}
+			d.Type = ChannelEndpointTypeSocks
+			lastI = i
+			break
+		} else if sp == "tcp" {
+			if haveType {
+				break
+			}
+			d.Type = ChannelEndpointTypeTCP
+			haveType = true
+		} else if sp == "unix" {
+			if haveType {
+				break
+			}
+			d.Type = ChannelEndpointTypeUnix
+			haveType = true
+		} else if sp == "loop" {
+			if haveType {
+				break
+			}
+			d.Type = ChannelEndpointTypeUnix
+			haveType = true
+		} else if IsPortNumberString(sp) {
+			if haveType && d.Type != ChannelEndpointTypeTCP {
+				break
+			}
+			d.Type = ChannelEndpointTypeTCP
+			port, _ := ParsePortNumber(sp)
+			d.Path = d.Path + ":" + port.String()
+			lastI = i
+			break
+		} else {
+			// Not an endpoint type name or a port number. Either
+			//  1: An angle-bracketed endpoint specifier
+			//  2: A path associated with an already parsed edpoint type
+			//  3: A path with an implicit endpoint type (tcp or unix)
+			if havePath {
+				lastI = i
+				break
+			}
+			if !haveType {
+				spParts, err := SplitBracketedParts(sp)
+				if err != nil {
+					return nil, parts, fmt.Errorf("Invalid endpoint descriptor string '%s': '%s'", s, err)
+				}
+				if len(spParts) > 1 {
+					// This must be an angle-bracketed standalone endpoint descriptor, so we will recurse
+					d, err = ParseChannelEndpointDescriptor(sp, role)
+					if err != nil {
+						return nil, parts, err
+					}
+					lastI = i
+					break
+				}
+
+				var spp0 string
+				if len(spParts) > 0 {
+					spp0 = StripAngleBrackets(spParts[0])
+				}
+
+				if spp0 == "stdio" {
+					d.Type = ChannelEndpointTypeStdio
+					lastI = i
+					break
+				}
+
+				if spp0 == "socks" {
+					d.Type = ChannelEndpointTypeSocks
+					lastI = i
+					break
+				}
+
+				if strings.HasPrefix(spp0, "/") || strings.HasPrefix(spp0, ".") {
+					d.Type = ChannelEndpointTypeUnix
+					d.Path = spp0
+					lastI = i
+					break
+				}
+
+				d.Type = ChannelEndpointTypeTCP
+				d.Path = spp0
+				haveType = true
+				havePath = true
+			} else {
+				// a path to go with explicitly provided endpoint type
+				if d.Type != ChannelEndpointTypeTCP {
+					d.Path = StripAngleBrackets(sp)
+					havePath = true
+					lastI = i
+					break
+				}
+				// A TCP path may contain a port number already in it, or
+				// consist of nothing but a port
+				host, port, err := ParseHostPort(sp, "", UnknownPortNumber)
+				if err != nil {
+					return nil, parts, fmt.Errorf("Invalid TCP host/port in endpoint descriptor string'%s': '%s'", s, err)
+				}
+				if port == UnknownPortNumber {
+					d.Path = host
+					havePath = true
+				} else {
+					d.Path = host + ":" + port.String()
+					havePath = true
+					lastI = i
+					break
+				}
+
+			}
+		}
+	}
+
+	if d.Type == ChannelEndpointTypeUnknown {
+		return nil, parts, fmt.Errorf("Unable to determine type from endpoint descriptor string '%s'", s)
+	}
+
+	if (d.Type == ChannelEndpointTypeUnix || d.Type == ChannelEndpointTypeLoop) && d.Path == "" {
+		return nil, parts, fmt.Errorf("Missing endpoint path in endpoint descriptor string '%s'", s)
+	}
+
+	// We allow unspecified path for TCP because it is implicitly determined from remote
+	// endpoint in some cases
+
+	return d, parts[lastI+1:], nil
+}
+
+// ParseChannelEndpointDescriptor parses a single standalone channel endpoint descriptor string
+func ParseChannelEndpointDescriptor(s string, role ChannelEndpointRole) (*ChannelEndpointDescriptor, error) {
+	parts, err := SplitBracketedParts(s)
+	if err != nil {
+		return nil, fmt.Errorf("Badly formed channel endpoint descriptor '%s': %s", s, err)
+	}
+	d, remaining, err := ParseNextChannelEndpointDescriptor(parts, role)
+	if err != nil {
+		return nil, err
+	}
+	if len(remaining) > 1 || (len(remaining) == 1 && remaining[0] != "") {
+		return nil, fmt.Errorf("Too many parts in channel endpoint descriptor string: '%s'", s)
+	}
+	return d, nil
 }
 
 // ParseChannelDescriptor parses a string representing a ChannelDescriptor
 func ParseChannelDescriptor(s string) (*ChannelDescriptor, error) {
 	reverse := false
-	parts, err := SplitChannelDescriptorParts(s)
+	parts, err := SplitBracketedParts(s)
 	if err != nil {
 		return nil, err
 	}
@@ -533,151 +798,28 @@ func ParseChannelDescriptor(s string) (*ChannelDescriptor, error) {
 		reverse = true
 		parts = parts[1:]
 	}
-	if len(parts) <= 0 {
-		return nil, fmt.Errorf("Empty channel descriptor string not allowed: '%s'", s)
-	}
-
 	d := &ChannelDescriptor{
 		Reverse: reverse,
-		Stub: ChannelEndpointDescriptor{
-			Role: ChannelEndpointRoleStub,
-		},
-		Skeleton: ChannelEndpointDescriptor{
-			Role: ChannelEndpointRoleSkeleton,
-		},
-	}
-	haveStub := false
-	haveSkeleton := false
-	haveType := false
-	havePath := false
-	havePort := false
-	var currentType ChannelEndpointType
-	var currentPath string
-
-	flushPartialEndpoint := func() error {
-		if haveType {
-			if haveSkeleton {
-				return fmt.Errorf("Too many elements in channel descriptor string: '%s'", s)
-			}
-			if !haveStub {
-				d.Stub.Type = currentType
-				d.Stub.Path = currentPath
-				haveStub = true
-			} else {
-				d.Skeleton.Type = currentType
-				d.Skeleton.Path = currentPath
-				haveSkeleton = true
-			}
-			haveType = false
-			havePath = false
-			havePort = false
-			currentType = ChannelEndpointTypeUnknown
-			currentPath = ""
-		}
-		return nil
 	}
 
-	for _, p := range parts {
-		if p == "stdio" {
-			err = flushPartialEndpoint()
-			if err != nil {
-				return nil, err
-			}
-			currentType = ChannelEndpointTypeStdio
-			haveType = true
-			err = flushPartialEndpoint()
-			if err != nil {
-				return nil, err
-			}
-		} else if p == "socks" {
-			err = flushPartialEndpoint()
-			if err != nil {
-				return nil, err
-			}
-			currentType = ChannelEndpointTypeSocks
-			haveType = true
-			err = flushPartialEndpoint()
-			if err != nil {
-				return nil, err
-			}
-		} else if p == "tcp" {
-			err = flushPartialEndpoint()
-			if err != nil {
-				return nil, err
-			}
-			currentType = ChannelEndpointTypeTCP
-			haveType = true
-		} else if p == "unix" {
-			err = flushPartialEndpoint()
-			if err != nil {
-				return nil, err
-			}
-			currentType = ChannelEndpointTypeUnix
-			haveType = true
-		} else if p == "loop" {
-			err = flushPartialEndpoint()
-			if err != nil {
-				return nil, err
-			}
-			currentType = ChannelEndpointTypeLoop
-			haveType = true
-		} else if isPort(p) {
-			if haveType && (currentType != ChannelEndpointTypeTCP || havePort) {
-				err = flushPartialEndpoint()
-				if err != nil {
-					return nil, err
-				}
-			}
-			currentType = ChannelEndpointTypeTCP
-			haveType = true
-			if !havePath {
-				currentPath = ""
-				havePath = true
-			}
-			currentPath = currentPath + ":" + p
-			havePort = true
-		} else {
-			if havePath {
-				err = flushPartialEndpoint()
-				if err != nil {
-					return nil, err
-				}
-			}
-			if !haveType {
-				if strings.HasPrefix(p, "tcp:") {
-					currentType = ChannelEndpointTypeTCP
-					p = p[4:]
-				} else if strings.HasPrefix(p, "unix:") {
-					currentType = ChannelEndpointTypeUnix
-					p = p[5:]
-				} else if strings.HasPrefix(p, "loop:") {
-					currentType = ChannelEndpointTypeLoop
-					p = p[5:]
-				} else if strings.HasPrefix(p, "socks:") {
-					currentType = ChannelEndpointTypeLoop
-					p = p[6:]
-				} else if strings.HasPrefix(p, "stdio:") {
-					currentType = ChannelEndpointTypeStdio
-					p = p[6:]
-				} else if strings.HasPrefix(p, "/") || strings.HasPrefix(p, ".") {
-					currentType = ChannelEndpointTypeUnix
-				} else {
-					currentType = ChannelEndpointTypeTCP
-				}
-				haveType = true
-			}
-			currentPath = p
-			havePath = true
-		}
-	}
-
-	err = flushPartialEndpoint()
+	var skeletonParts []string
+	d.Stub, skeletonParts, err = ParseNextChannelEndpointDescriptor(parts, ChannelEndpointRoleStub)
 	if err != nil {
 		return nil, err
 	}
 
-	if d.Stub.Type == ChannelEndpointTypeUnknown {
-		return nil, fmt.Errorf("Insufficient information in channel descriptor string: '%s'", s)
+	remParts := skeletonParts
+	if len(skeletonParts) > 0 {
+		d.Skeleton, remParts, err = ParseNextChannelEndpointDescriptor(parts, ChannelEndpointRoleSkeleton)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		d.Skeleton = &ChannelEndpointDescriptor{Role: ChannelEndpointRoleSkeleton}
+	}
+
+	if len(remParts) != 0 {
+		return nil, fmt.Errorf("Too many parts in channel descriptor string: '%s'", s)
 	}
 
 	if d.Stub.Type == ChannelEndpointTypeSocks {
@@ -704,13 +846,13 @@ func ParseChannelDescriptor(s string) (*ChannelDescriptor, error) {
 	}
 
 	stubBindAddr := ""
-	stubPort := InvalidPort
+	stubPort := UnknownPortNumber
 	skeletonHost := ""
-	skeletonPort := InvalidPort
+	skeletonPort := UnknownPortNumber
 
 	if d.Stub.Type == ChannelEndpointTypeTCP {
 		if len(d.Stub.Path) > 0 {
-			stubBindAddr, stubPort, err = ParseHostPort(d.Stub.Path, InvalidPort)
+			stubBindAddr, stubPort, err = ParseHostPort(d.Stub.Path, "", UnknownPortNumber)
 			if err != nil {
 				return nil, err
 			}
@@ -719,7 +861,7 @@ func ParseChannelDescriptor(s string) (*ChannelDescriptor, error) {
 
 	if d.Skeleton.Type == ChannelEndpointTypeTCP {
 		if len(d.Skeleton.Path) > 0 {
-			skeletonHost, skeletonPort, err = ParseHostPort(d.Skeleton.Path, InvalidPort)
+			skeletonHost, skeletonPort, err = ParseHostPort(d.Skeleton.Path, "", UnknownPortNumber)
 			if err != nil {
 				return nil, err
 			}
@@ -734,16 +876,16 @@ func ParseChannelDescriptor(s string) (*ChannelDescriptor, error) {
 		}
 	}
 
-	if d.Stub.Type == ChannelEndpointTypeTCP && stubPort == InvalidPort {
+	if d.Stub.Type == ChannelEndpointTypeTCP && stubPort == UnknownPortNumber {
 		if d.Skeleton.Type == ChannelEndpointTypeSocks {
-			stubPort = 1080
-		} else if skeletonPort != InvalidPort {
+			stubPort = PortNumber(1080)
+		} else if skeletonPort != UnknownPortNumber {
 			stubPort = skeletonPort
 		}
 	}
 
-	if d.Skeleton.Type == ChannelEndpointTypeTCP && skeletonPort == InvalidPort {
-		if stubPort != InvalidPort {
+	if d.Skeleton.Type == ChannelEndpointTypeTCP && skeletonPort == UnknownPortNumber {
+		if stubPort != UnknownPortNumber {
 			skeletonPort = stubPort
 		}
 	}
@@ -752,24 +894,24 @@ func ParseChannelDescriptor(s string) (*ChannelDescriptor, error) {
 		if stubBindAddr == "" {
 			return nil, fmt.Errorf("Unable to determine stub bind address in channel descriptor string: '%s'", s)
 		}
-		if stubPort == InvalidPort {
+		if stubPort == UnknownPortNumber {
 			return nil, fmt.Errorf("Unable to determine stub port number in channel descriptor string: '%s'", s)
 		}
 
-		d.Stub.Path = stubBindAddr + ":" + strconv.Itoa(stubPort)
+		d.Stub.Path = stubBindAddr + ":" + stubPort.String()
 	}
 
 	if d.Skeleton.Type == ChannelEndpointTypeTCP {
 		if skeletonHost == "" {
-			return nil, fmt.Errorf("Unable to determine skeleton host name in channel descriptor string: '%s'", s)
+			skeletonHost = "localhost"
 		}
-		if skeletonPort == InvalidPort {
+		if skeletonPort == UnknownPortNumber {
 			return nil, fmt.Errorf("Unable to determine skeleton port number in channel descriptor string: '%s'", s)
 		}
-		d.Skeleton.Path = skeletonHost + ":" + strconv.Itoa(skeletonPort)
+		d.Skeleton.Path = skeletonHost + ":" + skeletonPort.String()
 	}
 
-	if (d.Stub.Type == ChannelEndpointTypeStdio && d.Reverse) || (d.Stub.Type == ChannelEndpointTypeStdio && d.Reverse) {
+	if (d.Stub.Type == ChannelEndpointTypeStdio && d.Reverse) || (d.Skeleton.Type == ChannelEndpointTypeStdio && !d.Reverse) {
 		return nil, fmt.Errorf("Stdio endpoints are only allowed on the client proxy side: '%s'", s)
 	}
 
@@ -785,30 +927,73 @@ func ParseChannelDescriptor(s string) (*ChannelDescriptor, error) {
 	return d, nil
 }
 
-type Channel interface {
-	io.ReadWriteCloser
-	GetLocalEndpointDescriptor()
-}
-
-type ChannelConn interface {
-	io.ReadWriteCloser
-}
-
-type LocalChannelConn interface {
-	ChannelConn
-}
-
+// ChannelEndpoint is a virtual network endpoint service of any type and role. Stub endpoints
+// are able to listen for and accept connections from local network clients, and proxy
+// them to a remote endpoint. Skeleton endpoints are able to accept connection requests from
+// remote endpoints and proxy them to local network services.
 type ChannelEndpoint interface {
 	io.Closer
-	GetChannelEndpointDescriptor() ChannelEndpointDescriptor
 }
 
-type StubChannelEndpoint interface {
+// AcceptorChannelEndpoint is a ChannelEndpoint that can be asked to accept and return connections from
+// a Caller network client as expected by the endpoint configuration.
+type AcceptorChannelEndpoint interface {
 	ChannelEndpoint
-	Accept() (LocalChannelConn, error)
+
+	// StartListening begins responding to Caller network clients in anticipation of Accept() calls. It
+	// is implicitly called by the first call to Accept() if not already called. It is only necessary to call
+	// this method if you need to begin accepting Callers before you make the first Accept call.
+	StartListening() error
+
+	// Accept listens for and accepts a single connection from a Caller network client as specified in the
+	// endpoint configuration. This call does not return until a new connection is available or a
+	// error occurs. There is no way to cancel an Accept() request other than closing the endpoint
+	Accept() (ChannelConn, error)
 }
 
-type SkeletonChannelEndpoint interface {
+// DialerChannelEndpoint is a ChannelEndpoint that can be asked to create a new connection to a network service
+// as expected in the endpoint configuration.
+type DialerChannelEndpoint interface {
 	ChannelEndpoint
-	Dial() (LocalChannelConn, error)
+
+	// DialContext initiates a new connection to a Called Service
+	DialContext(ctx context.Context, extraData []byte) (ChannelConn, error)
+}
+
+// LocalStubChannelEndpoint is an AcceptorChannelEndpoint that accepts connections from local network clients
+type LocalStubChannelEndpoint interface {
+	AcceptorChannelEndpoint
+}
+
+// LocalSkeletonChannelEndpoint is a Dialer
+type LocalSkeletonChannelEndpoint interface {
+	DialerChannelEndpoint
+}
+
+// ChannelConn is a virtual open "socket", either
+//      1) created by a ChannelEndpoint to wrap communication with a local network resource
+//      2) created by the proxy session to wrap a single ssh communication channel with a remote endpoint
+type ChannelConn interface {
+	io.ReadWriteCloser
+
+	// CloseWrite shuts down the writing side of the "socket". Corresponds to net.TCPConn.CloseWrite().
+	// this method is called when end-of-stream is reached reading from the other ChannelConn of a pair
+	// pair are connected via a ChannelPipe. It allows for protocols like HTTP 1.0 in which a client
+	// sends a request, closes the write side of the socket, then reads the response, and a server reads
+	// a request until end-of-stream before sending a response.
+	CloseWrite() error
+}
+
+// BasicEndpoint is a base common implementation for local ChannelEndPoints
+type BasicEndpoint struct {
+	*Logger
+	lock   sync.Mutex
+	ced    *ChannelEndpointDescriptor
+	closed bool
+}
+
+// BasicConn is a base common implementation for local ChannelConn
+type BasicConn struct {
+	ChannelConn
+	*Logger
 }

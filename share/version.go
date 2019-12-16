@@ -6,4 +6,5 @@ package chshare
 //mismatch.
 const ProtocolVersion = "xevo-chisel-v1"
 
+// BuildVersion is the build version for this release
 var BuildVersion = "1.0.0-src"
