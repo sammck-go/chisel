@@ -1,5 +1,7 @@
 package chshare
 
+// Implementation of a wrapper turning ssh.Channel into a ChannelConn
+
 import (
 	"fmt"
 	"golang.org/x/crypto/ssh"

@@ -26,6 +26,9 @@ func NewHTTPServer() *HTTPServer {
 	}
 }
 
+// GoListenAndServe starts an HTTP server running in the background
+// on the given bind address, invoking the provided handler for each
+// request. 
 func (h *HTTPServer) GoListenAndServe(addr string, handler http.Handler) error {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -48,11 +51,13 @@ func (h *HTTPServer) closeWith(err error) {
 	h.running <- err
 }
 
+// Close closes the HTTPServer and stops it from listening
 func (h *HTTPServer) Close() error {
 	h.closeWith(nil)
 	return h.listener.Close()
 }
 
+// Wait waits for an HTTPServer to fully shut down
 func (h *HTTPServer) Wait() error {
 	if !h.isRunning {
 		return errors.New("Already closed")

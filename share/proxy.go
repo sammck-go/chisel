@@ -10,8 +10,12 @@ import (
 	"net"
 )
 
+// GetSSHConn is a callback that is used to defer fetching of the ssh.Conn
+// until after it is established
 type GetSSHConn func() ssh.Conn
 
+// TCPProxy proxies a single channel between a local stub endpoint
+// and a remote skeleton endpoint
 type TCPProxy struct {
 	*Logger
 	ssh   GetSSHConn
@@ -20,6 +24,7 @@ type TCPProxy struct {
 	chd   *ChannelDescriptor
 }
 
+// NewTCPProxy creates a new TCPProxy
 func NewTCPProxy(logger *Logger, ssh GetSSHConn, index int, chd *ChannelDescriptor) *TCPProxy {
 	id := index + 1
 	return &TCPProxy{
@@ -30,18 +35,14 @@ func NewTCPProxy(logger *Logger, ssh GetSSHConn, index int, chd *ChannelDescript
 	}
 }
 
+// Start starts a listener for the local stub endpoint in the backgroud
 func (p *TCPProxy) Start(ctx context.Context) error {
-	if p.chd.Stub.Type == ChannelEndpointTypeStdio {
-		src := NewStdioPipePair(p.Logger)
-		go p.accept(src)
-	} else {
-		// TODO: support IPV6
-		l, err := net.Listen("tcp4", p.chd.Stub.Path)
-		if err != nil {
-			return fmt.Errorf("%s: TCP listen failed for path '%s': %s", p.Logger.Prefix(), p.chd.Stub.Path, err)
-		}
-		go p.listen(ctx, l)
+	// TODO: support IPV6
+	l, err := net.Listen("tcp4", p.chd.Stub.Path)
+	if err != nil {
+		return fmt.Errorf("%s: TCP listen failed for path '%s': %s", p.Logger.Prefix(), p.chd.Stub.Path, err)
 	}
+	go p.listen(ctx, l)
 	return nil
 }
 

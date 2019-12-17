@@ -11,6 +11,7 @@ type rwcConn struct {
 	buff []byte
 }
 
+// NewRWCConn wraps an io.ReadWriteCloser to look enough like net.Conn to fool a socks server
 func NewRWCConn(rwc io.ReadWriteCloser) net.Conn {
 	c := rwcConn{
 		ReadWriteCloser: rwc,

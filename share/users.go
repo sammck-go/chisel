@@ -12,11 +12,14 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+// Users manages a list of users with authorization info for each
 type Users struct {
 	sync.RWMutex
 	inner map[string]*User
 }
 
+// NewUsers creates a new Users object to manage user authorization
+// information
 func NewUsers() *Users {
 	return &Users{inner: map[string]*User{}}
 }

@@ -13,6 +13,7 @@ type wsConn struct {
 	buff []byte
 }
 
+// NewWebSocketConn wraps a websocket.Conn to look like a net.Conn
 func NewWebSocketConn(websocketConn *websocket.Conn) net.Conn {
 	c := wsConn{
 		Conn: websocketConn,

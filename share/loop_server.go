@@ -119,6 +119,9 @@ func (s *LoopServer) DialAndServe(
 	return acceptor.HandleDialAndServe(ctx, callerConn, extraData)
 }
 
+// EnqueueCallerConn adds an existing ChannelConn to be used as a result from a pending or
+// future Accept() request on a given loop name. Does not block; If the pending connect
+// queue is full, an error will be returned.
 func (s *LoopServer) EnqueueCallerConn(name string, dialConn ChannelConn) error {
 	acceptor := s.GetAcceptor(name)
 	if acceptor == nil {

@@ -161,39 +161,18 @@ func (s *Server) handleSSHRequests(clientLog *chshare.Logger, reqs <-chan *ssh.R
 func (s *Server) handleSSHChannels(clientLog *chshare.Logger, chans <-chan ssh.NewChannel) {
 	for ch := range chans {
 		epdJSON := ch.ExtraData()
-		var epd chshare.ChannelEndpointDescriptor
-		err := json.Unmarshal(epdJSON, &epd)
+		epd := &chshare.ChannelEndpointDescriptor{}
+		err := json.Unmarshal(epdJSON, epd)
 		if err != nil {
 			clientLog.Debugf("Error: Remote channel connect request: bad JSON parameter string: '%s'", epdJSON)
 			ch.Reject(ssh.UnknownChannelType, "Bad JSON ExtraData")
 			continue
 		}
 		clientLog.Debugf("Remote channel connect request, endpoint ='%s'", epd.LongString())
-		if epd.Role != chshare.ChannelEndpointRoleSkeleton {
-			clientLog.Debugf("Error: Remote channel connect request: Role must be skeleton: '%s'", epd.LongString())
-			ch.Reject(ssh.Prohibited, "Role must be skeleton")
-			continue
-		}
-		if epd.Type == chshare.ChannelEndpointTypeStdio {
-			clientLog.Debugf("Error: Remote channel connect request: Server-side skeleton STDIO not supported: '%s'", epd.LongString())
-			ch.Reject(ssh.Prohibited, "Server-side STDIO not supported")
-			continue
-		}
-		if epd.Type == chshare.ChannelEndpointTypeLoop {
-			clientLog.Debugf("Error: Remote channel connect request: Loop channels not yet not supported: '%s'", epd.LongString())
-			ch.Reject(ssh.Prohibited, "Loop channels not yet supported")
-			continue
-		}
-		if epd.Type == chshare.ChannelEndpointTypeUnix {
-			clientLog.Debugf("Error: Remote channel connect request: Unix domain sockets not yet not supported: '%s'", epd.LongString())
-			ch.Reject(ssh.Prohibited, "Unix domain sockets not yet supported")
-			continue
-		}
-		socks := epd.Type == chshare.ChannelEndpointTypeSocks
-		//dont accept socks when --socks5 isn't enabled
-		if socks && s.socksServer == nil {
-			clientLog.Debugf("Denied socks request, please enable --socks5")
-			ch.Reject(ssh.Prohibited, "SOCKS5 is not enabled on the server")
+		ep, err := chshare.NewLocalSkeletonChannelEndpoint(clientLog, s, epd)
+		if err != nil {
+			clientLog.Debugf("Error: Remote channel connect request: %s", err)
+			ch.Reject(ssh.Prohibited, err.Error())
 			continue
 		}
 
@@ -201,17 +180,35 @@ func (s *Server) handleSSHChannels(clientLog *chshare.Logger, chans <-chan ssh.N
 		//       Need to refactor code here
 		stream, reqs, err := ch.Accept()
 		if err != nil {
-			clientLog.Debugf("Failed to accept stream: %s", err)
+			clientLog.Debugf("Failed to accept SSH stream: %s", err)
+			ep.Close()
 			continue
 		}
 		go ssh.DiscardRequests(reqs)
-		//handle stream type
-		connID := s.connStats.New()
-		if socks {
-			go s.handleSocksStream(clientLog.Fork("socksconn#%d", connID), stream)
-		} else {
-			go chshare.HandleTCPStream(clientLog.Fork("conn#%d", connID), &s.connStats, stream, epd.Path)
+
+		sshConn, err := chshare.NewSSHConn(clientLog, stream)
+		if err != nil {
+			clientLog.Debugf("Failed wrap SSH stream: %s", err)
+			stream.Close()
+			ep.Close()
+			continue
 		}
+
+		ctx := context.Background()
+		var extraData []byte
+
+		go func() {
+			ep.DialAndServe(ctx, sshConn, extraData)
+		}()
+
+		/*
+			connID := s.connStats.New()
+			if socks {
+				go s.handleSocksStream(clientLog.Fork("socksconn#%d", connID), stream)
+			} else {
+				go chshare.HandleTCPStream(clientLog.Fork("conn#%d", connID), &s.connStats, stream, epd.Path)
+			}
+		*/
 	}
 }
 

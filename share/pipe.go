@@ -5,6 +5,9 @@ import (
 	"sync"
 )
 
+// Pipe concurrently copies in both directions betweeen two socket-like
+// objects, returning after all data has been copied and both src
+// and dst have been closed.
 func Pipe(src io.ReadWriteCloser, dst io.ReadWriteCloser) (int64, int64) {
 	var sent, received int64
 	var wg sync.WaitGroup

@@ -9,8 +9,12 @@ import (
 	"io"
 )
 
+// DetermRandIter is the number of times a seed is hashed with SHA-512 to produce
+// starting state of a pseudo-random stream
 const DetermRandIter = 2048
 
+// NewDetermRand creates an io.Reader that produces pseudo random bytes that are deterministic
+// from a seed
 func NewDetermRand(seed []byte) io.Reader {
 	var out []byte
 	//strengthen seed
@@ -24,6 +28,7 @@ func NewDetermRand(seed []byte) io.Reader {
 	}
 }
 
+// DetermRand keeps running state for a pseudorandom byte stream
 type DetermRand struct {
 	next, out []byte
 }
@@ -39,6 +44,7 @@ func (d *DetermRand) Read(b []byte) (int, error) {
 	return n, nil
 }
 
+// hash computes an SHA-512 hash
 func hash(input []byte) (next []byte, output []byte) {
 	nextout := sha512.Sum512(input)
 	return nextout[:sha512.Size/2], nextout[sha512.Size/2:]
