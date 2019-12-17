@@ -8,8 +8,8 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/XevoInc/chisel/client"
-	"github.com/XevoInc/chisel/server"
+	chclient "github.com/XevoInc/chisel/client"
+	chserver "github.com/XevoInc/chisel/server"
 	chshare "github.com/XevoInc/chisel/share"
 )
 
@@ -124,6 +124,9 @@ var serverHelp = `
     chisel receives a normal HTTP request. Useful for hiding chisel in
     plain sight.
 
+		--noloop, Disable clients from creating or connecting to "loop"
+		endpoints.
+
     --socks5, Allow clients to access the internal SOCKS5 proxy. See
     chisel client --help for more information.
 
@@ -142,6 +145,7 @@ func server(args []string) {
 	authfile := flags.String("authfile", "", "")
 	auth := flags.String("auth", "", "")
 	proxy := flags.String("proxy", "", "")
+	noLoop := flags.Bool("noloop", false, "")
 	socks5 := flags.Bool("socks5", false, "")
 	reverse := flags.Bool("reverse", false, "")
 	pid := flags.Bool("pid", false, "")
@@ -177,8 +181,9 @@ func server(args []string) {
 		Auth:     *auth,
 		Proxy:    *proxy,
 		Socks5:   *socks5,
+		NoLoop:   *noLoop,
 		Reverse:  *reverse,
-		Debug: *verbose,
+		Debug:    *verbose,
 	})
 	if err != nil {
 		log.Fatal(err)

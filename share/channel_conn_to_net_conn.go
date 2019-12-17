@@ -7,7 +7,6 @@ package chshare
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"time"
 )

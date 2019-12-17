@@ -1,6 +1,7 @@
 package chshare
 
 import (
+	"context"
 	"fmt"
 	"net"
 )
@@ -87,7 +88,7 @@ func (ep *UnixStubEndpoint) StartListening() error {
 // endpoint configuration. This call does not return until a new connection is available or a
 // error occurs. There is no way to cancel an Accept() request other than closing the endpoint. Part of
 // the AcceptorChannelEndpoint interface.
-func (ep *UnixStubEndpoint) Accept() (ChannelConn, error) {
+func (ep *UnixStubEndpoint) Accept(ctx context.Context) (ChannelConn, error) {
 	listener, err := ep.getListener()
 	if err != nil {
 		return nil, err
@@ -103,4 +104,28 @@ func (ep *UnixStubEndpoint) Accept() (ChannelConn, error) {
 		return nil, fmt.Errorf("%s: Unable to create SocketConn: %s", ep.Logger.Prefix(), err)
 	}
 	return conn, nil
+}
+
+// AcceptAndServe listens for and accepts a single connection from a Caller network client as specified in the
+// endpoint configuration, then services the connection using an already established
+// calledServiceConn as the proxied Called Service's end of the session. This call does not return until
+// the bridged session completes or an error occurs. There is no way to cancel the Accept() portion
+// of the request other than closing the endpoint through other means. After the connection has been
+// accepted, the context may be used to cancel servicing of the active session.
+// Ownership of calledServiceConn is transferred to this function, and it will be closed before this function returns.
+// This API may be more efficient than separately using Accept() and then bridging between the two
+// ChannelConns with BasicBridgeChannels. In particular, "loop" endpoints can avoid creation
+// of a socketpair and an extra bridging goroutine, by directly coupling the acceptor ChannelConn
+// to the dialer ChannelConn.
+// The return value is a tuple consisting of:
+//        Number of bytes sent from the accepted callerConn to calledServiceConn
+//        Number of bytes sent from calledServiceConn to the accelpted callerConn
+//        An error, if one occured during accept or copy in either direction
+func (ep *UnixStubEndpoint) AcceptAndServe(ctx context.Context, calledServiceConn ChannelConn) (int64, int64, error) {
+	callerConn, err := ep.Accept(ctx)
+	if err != nil {
+		calledServiceConn.Close()
+		return 0, 0, err
+	}
+	return BasicBridgeChannels(ctx, callerConn, calledServiceConn)
 }

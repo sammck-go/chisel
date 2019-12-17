@@ -2,29 +2,29 @@ package chshare
 
 import (
 	"fmt"
-	"net"
+	"golang.org/x/crypto/ssh"
 	"sync/atomic"
 )
 
-// SocketConn implements a local TCP or Unix Domain ChannelConn
-type SocketConn struct {
+// SSHConn implements a local TCP or Unix Domain ChannelConn
+type SSHConn struct {
 	BasicConn
-	netConn net.Conn
+	rawSSHConn ssh.Channel
 }
 
-// NewSocketConn creates a new SocketConn
-func NewSocketConn(logger *Logger, netConn net.Conn) (*SocketConn, error) {
-	c := &SocketConn{
+// NewSSHConn creates a new SSHConn
+func NewSSHConn(logger *Logger, rawSSHConn ssh.Channel) (*SSHConn, error) {
+	c := &SSHConn{
 		BasicConn: BasicConn{
-			Logger: logger.Fork("SocketConn: %s", netConn),
-			Done: make(chan struct{}),
+			Logger: logger.Fork("SSHConn: %s", rawSSHConn),
+			Done:   make(chan struct{}),
 		},
-		netConn: netConn,
+		rawSSHConn: rawSSHConn,
 	}
 	return c, nil
 }
 
-func (c *SocketConn) String() string {
+func (c *SSHConn) String() string {
 	return c.Logger.Prefix()
 }
 
@@ -33,16 +33,8 @@ func (c *SocketConn) String() string {
 // pair are connected via a ChannelPipe. It allows for protocols like HTTP 1.0 in which a client
 // sends a request, closes the write side of the socket, then reads the response, and a server reads
 // a request until end-of-stream before sending a response. Part of the ChannelConn interface
-func (c *SocketConn) CloseWrite() error {
-	var err error
-	switch nc := c.netConn.(type) {
-	case *net.UnixConn:
-		err = nc.CloseWrite()
-	case *net.TCPConn:
-		err = nc.CloseWrite()
-	default:
-		err = fmt.Errorf("CloseWrite() called on unknown net.Conn type %T", nc)
-	}
+func (c *SSHConn) CloseWrite() error {
+	err := c.rawSSHConn.CloseWrite()
 	if err != nil {
 		err = fmt.Errorf("%s: %s", c.Logger.Prefix(), err)
 	}
@@ -50,9 +42,9 @@ func (c *SocketConn) CloseWrite() error {
 }
 
 // Close implements the Closer interface
-func (c *SocketConn) Close() error {
+func (c *SSHConn) Close() error {
 	c.CloseOnce.Do(func() {
-		err := c.netConn.Close()
+		err := c.rawSSHConn.Close()
 		if err != nil {
 			err = fmt.Errorf("%s: %s", c.Logger.Prefix(), err)
 		}
@@ -65,21 +57,21 @@ func (c *SocketConn) Close() error {
 }
 
 // WaitForClose blocks until the Close() method has been called and completed
-func (c *SocketConn) WaitForClose() error {
+func (c *SSHConn) WaitForClose() error {
 	<-c.Done
 	return c.CloseErr
 }
 
 // Read implements the Reader interface
-func (c *SocketConn) Read(p []byte) (n int, err error) {
-	n, err = c.netConn.Read(p)
+func (c *SSHConn) Read(p []byte) (n int, err error) {
+	n, err = c.rawSSHConn.Read(p)
 	atomic.AddInt64(&c.NumBytesRead, int64(n))
 	return n, err
 }
 
 // Write implements the Writer interface
-func (c *SocketConn) Write(p []byte) (n int, err error) {
-	n, err = c.netConn.Write(p)
+func (c *SSHConn) Write(p []byte) (n int, err error) {
+	n, err = c.rawSSHConn.Write(p)
 	atomic.AddInt64(&c.NumBytesWritten, int64(n))
 	return n, err
 }

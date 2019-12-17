@@ -3,10 +3,12 @@ package chshare
 import (
 	"context"
 	"fmt"
+	socks5 "github.com/armon/go-socks5"
 	"io"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // To distinguish between the various entities in a tunneled
@@ -948,7 +950,24 @@ type AcceptorChannelEndpoint interface {
 	// Accept listens for and accepts a single connection from a Caller network client as specified in the
 	// endpoint configuration. This call does not return until a new connection is available or a
 	// error occurs. There is no way to cancel an Accept() request other than closing the endpoint
-	Accept() (ChannelConn, error)
+	Accept(ctx context.Context) (ChannelConn, error)
+
+	// AcceptAndServe listens for and accepts a single connection from a Caller network client as specified in the
+	// endpoint configuration, then services the connection using an already established
+	// calledServiceConn as the proxied Called Service's end of the session. This call does not return until
+	// the bridged session completes or an error occurs. There is no way to cancel the Accept() portion
+	// of the request other than closing the endpoint through other means. After the connection has been
+	// accepted, the context may be used to cancel servicing of the active session.
+	// Ownership of calledServiceConn is transferred to this function, and it will be closed before this function returns.
+	// This API may be more efficient than separately using Accept() and then bridging between the two
+	// ChannelConns with BasicBridgeChannels. In particular, "loop" endpoints can avoid creation
+	// of a socketpair and an extra bridging goroutine, by directly coupling the acceptor ChannelConn
+	// to the dialer ChannelConn.
+	// The return value is a tuple consisting of:
+	//        Number of bytes sent from the accepted callerConn to calledServiceConn
+	//        Number of bytes sent from calledServiceConn to the accelpted callerConn
+	//        An error, if one occured during accept or copy in either direction
+	AcceptAndServe(ctx context.Context, calledServiceConn ChannelConn) (int64, int64, error)
 }
 
 // DialerChannelEndpoint is a ChannelEndpoint that can be asked to create a new connection to a network service
@@ -956,8 +975,29 @@ type AcceptorChannelEndpoint interface {
 type DialerChannelEndpoint interface {
 	ChannelEndpoint
 
-	// DialContext initiates a new connection to a Called Service
-	DialContext(ctx context.Context, extraData []byte) (ChannelConn, error)
+	// Dial initiates a new connection to a Called Service
+	Dial(ctx context.Context, extraData []byte) (ChannelConn, error)
+
+	// DialAndServe initiates a new connection to a Called Service as specified in the
+	// endpoint configuration, then services the connection using an already established
+	// callerConn as the proxied Caller's end of the session. This call does not return until
+	// the bridged session completes or an error occurs. The context may be used to cancel
+	// connection or servicing of the active session.
+	// Ownership of callerConn is transferred to this function, and it will be closed before
+	// this function returns, regardless of whether an error occurs.
+	// This API may be more efficient than separately using Dial() and then bridging between the two
+	// ChannelConns with BasicBridgeChannels. In particular, "loop" endpoints can avoid creation
+	// of a socketpair and an extra bridging goroutine, by directly coupling the acceptor ChannelConn
+	// to the dialer ChannelConn.
+	// The return value is a tuple consisting of:
+	//        Number of bytes sent from callerConn to the dialed calledServiceConn
+	//        Number of bytes sent from the dialed calledServiceConn callerConn
+	//        An error, if one occured during dial or copy in either direction
+	DialAndServe(
+		ctx context.Context,
+		callerConn ChannelConn,
+		extraData []byte,
+	) (int64, int64, error)
 }
 
 // LocalStubChannelEndpoint is an AcceptorChannelEndpoint that accepts connections from local network clients
@@ -976,12 +1016,22 @@ type LocalSkeletonChannelEndpoint interface {
 type ChannelConn interface {
 	io.ReadWriteCloser
 
+	// WaitForClose blocks until the Close() method has been called and completed. The error returned
+	// from the first Close() is returned
+	WaitForClose() error
+
 	// CloseWrite shuts down the writing side of the "socket". Corresponds to net.TCPConn.CloseWrite().
 	// this method is called when end-of-stream is reached reading from the other ChannelConn of a pair
 	// pair are connected via a ChannelPipe. It allows for protocols like HTTP 1.0 in which a client
 	// sends a request, closes the write side of the socket, then reads the response, and a server reads
 	// a request until end-of-stream before sending a response.
 	CloseWrite() error
+
+	// GetNumBytesRead returns the number of bytes read so far on a ChannelConn
+	GetNumBytesRead() int64
+
+	// GetNumBytesWritten returns the number of bytes written so far on a ChannelConn
+	GetNumBytesWritten() int64
 }
 
 // BasicEndpoint is a base common implementation for local ChannelEndPoints
@@ -996,4 +1046,150 @@ type BasicEndpoint struct {
 type BasicConn struct {
 	ChannelConn
 	*Logger
+	Lock            sync.Mutex
+	Done            chan struct{}
+	CloseOnce       sync.Once
+	CloseErr        error
+	NumBytesRead    int64
+	NumBytesWritten int64
+}
+
+// GetNumBytesRead returns the number of bytes read so far on a ChannelConn
+func (c *BasicConn) GetNumBytesRead() int64 {
+	return atomic.LoadInt64(&c.NumBytesRead)
+}
+
+// GetNumBytesWritten returns the number of bytes written so far on a ChannelConn
+func (c *BasicConn) GetNumBytesWritten() int64 {
+	return atomic.LoadInt64(&c.NumBytesWritten)
+}
+
+// BasicBridgeChannels connects two ChannelConn's together, copying betweeen them bi-directionally
+// until end-of-stream is reached in both directions. Both channels are closed before this function
+// returns. Three values are returned:
+//    Number of bytes transferred from caller to calledService
+//    Number of bytes transferred from calledService to caller
+//    If io.Copy() returned an error in either direction, the error value.
+//
+// CloseWrite() is called on each channel after transfer to that channel is complete.
+//
+// Currently the context is not used and there is no way to cancel the bridge without closing
+// one of the ChannelConn's.
+func BasicBridgeChannels(
+	ctx context.Context,
+	caller ChannelConn,
+	calledService ChannelConn,
+) (int64, int64, error) {
+	var callerToServiceBytes, serviceToCallerBytes int64
+	var callerToServiceErr, serviceToCallerErr error
+	var wg sync.WaitGroup
+	wg.Add(2)
+	copyFunc := func(src ChannelConn, dst ChannelConn, bytesCopied *int64, copyErr *error) {
+		// Copy from caller to calledService
+		*bytesCopied, *copyErr = io.Copy(dst, src)
+		dst.CloseWrite()
+		wg.Done()
+	}
+	go copyFunc(caller, calledService, &callerToServiceBytes, &callerToServiceErr)
+	go copyFunc(calledService, caller, &serviceToCallerBytes, &serviceToCallerErr)
+	wg.Wait()
+	calledService.Close()
+	caller.Close()
+	err := callerToServiceErr
+	if err == nil {
+		err = serviceToCallerErr
+	}
+	return callerToServiceBytes, serviceToCallerBytes, err
+}
+
+// LocalChannelEnv provides necessary context for initialization of local channel endpoints
+type LocalChannelEnv interface {
+	// IsServer returns true if this is a proxy server; false if it is a cliet
+	IsServer() bool
+
+	// GetLoopServer returns the shared LoopServer if loop protocol is enabled; nil otherwise
+	GetLoopServer() *LoopServer
+
+	// GetSocksServer returns the shared socks5 server if socks protocol is enabled;
+	// nil otherwise
+	GetSocksServer() *socks5.Server
+}
+
+// NewLocalStubChannelEndpoint creates a LocalStubChannelEndpoint from its descriptor
+func NewLocalStubChannelEndpoint(
+	logger *Logger,
+	env LocalChannelEnv,
+	ced *ChannelEndpointDescriptor,
+) (LocalStubChannelEndpoint, error) {
+	var ep LocalStubChannelEndpoint
+	var err error
+
+	if ced.Role != ChannelEndpointRoleStub {
+		err = fmt.Errorf("%s: Role must be stub: %s", logger.Prefix(), ced.LongString())
+	} else if ced.Type == ChannelEndpointTypeStdio {
+		if env.IsServer() {
+			err = fmt.Errorf("%s: stdio endpoints are not allowed on the server side: %s", logger.Prefix(), ced.LongString())
+		} else {
+			ep, err = NewStdioStubEndpoint(logger, ced)
+		}
+	} else if ced.Type == ChannelEndpointTypeLoop {
+		loopServer := env.GetLoopServer()
+		if loopServer == nil {
+			err = fmt.Errorf("%s: Loop endpoints are disabled: %s", logger.Prefix(), ced.LongString())
+		} else {
+			ep, err = NewLoopStubEndpoint(logger, ced, loopServer)
+		}
+	} else if ced.Type == ChannelEndpointTypeTCP {
+		ep, err = NewTCPStubEndpoint(logger, ced)
+	} else if ced.Type == ChannelEndpointTypeUnix {
+		ep, err = NewUnixStubEndpoint(logger, ced)
+	} else if ced.Type == ChannelEndpointTypeSocks {
+		err = fmt.Errorf("%s: Socks endpoint Role must be skeleton: %s", logger.Prefix(), ced.LongString())
+	} else {
+		err = fmt.Errorf("%s: Unsupported endpoint type '%s': %s", logger.Prefix(), ced.Type, ced.LongString())
+	}
+
+	return ep, err
+}
+
+// NewLocalSkeletonChannelEndpoint creates a LocalSkeletonChannelEndpoint from its descriptor
+func NewLocalSkeletonChannelEndpoint(
+	logger *Logger,
+	env LocalChannelEnv,
+	ced *ChannelEndpointDescriptor,
+) (LocalSkeletonChannelEndpoint, error) {
+	var ep LocalSkeletonChannelEndpoint
+	var err error
+
+	if ced.Role != ChannelEndpointRoleSkeleton {
+		err = fmt.Errorf("%s: Role must be skeleton: %s", logger.Prefix(), ced.LongString())
+	} else if ced.Type == ChannelEndpointTypeStdio {
+		if env.IsServer() {
+			err = fmt.Errorf("%s: stdio endpoints are not allowed on the server side: %s", logger.Prefix(), ced.LongString())
+		} else {
+			ep, err = NewStdioSkeletonEndpoint(logger, ced)
+		}
+	} else if ced.Type == ChannelEndpointTypeLoop {
+		loopServer := env.GetLoopServer()
+		if loopServer == nil {
+			err = fmt.Errorf("%s: Loop endpoints are disabled: %s", logger.Prefix(), ced.LongString())
+		} else {
+			ep, err = NewLoopSkeletonEndpoint(logger, ced, loopServer)
+		}
+	} else if ced.Type == ChannelEndpointTypeTCP {
+		ep, err = NewTCPSkeletonEndpoint(logger, ced)
+	} else if ced.Type == ChannelEndpointTypeUnix {
+		ep, err = NewUnixSkeletonEndpoint(logger, ced)
+	} else if ced.Type == ChannelEndpointTypeSocks {
+		socksServer := env.GetSocksServer()
+		if socksServer == nil {
+			err = fmt.Errorf("%s: socks endpoints are disabled: %s", logger.Prefix(), ced.LongString())
+		} else {
+			ep, err = NewSocksSkeletonEndpoint(logger, ced, socksServer)
+		}
+	} else {
+		err = fmt.Errorf("%s: Unsupported endpoint type '%s': %s", logger.Prefix(), ced.Type, ced.LongString())
+	}
+
+	return ep, err
 }

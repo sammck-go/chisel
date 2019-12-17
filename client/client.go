@@ -13,6 +13,7 @@ import (
 	"time"
 
 	chshare "github.com/XevoInc/chisel/share"
+	socks5 "github.com/armon/go-socks5"
 	"github.com/gorilla/websocket"
 	"github.com/jpillora/backoff"
 	"golang.org/x/crypto/ssh"
@@ -43,11 +44,15 @@ type Client struct {
 	running      bool
 	runningc     chan error
 	connStats    chshare.ConnStats
+	socksServer  *socks5.Server
+	loopServer   *chshare.LoopServer
 }
 
 //NewClient creates a new client instance
 func NewClient(config *Config) (*Client, error) {
 	//apply default scheme
+	logger := chshare.NewLogger("client")
+
 	if !strings.HasPrefix(config.Server, "http") {
 		config.Server = "http://" + config.Server
 	}
@@ -72,24 +77,29 @@ func NewClient(config *Config) (*Client, error) {
 	for _, s := range config.ChdStrings {
 		chd, err := chshare.ParseChannelDescriptor(s)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to parse channel descriptor string '%s': %s", s, err)
+			return nil, fmt.Errorf("%s: Failed to parse channel descriptor string '%s': %s", logger.Prefix(), s, err)
 		}
 		shared.ChannelDescriptors = append(shared.ChannelDescriptors, chd)
 	}
 	config.shared = shared
+	loopServer, err := chshare.NewLoopServer(logger)
+	if err != nil {
+		return nil, fmt.Errorf("%s: Failed to start loop server", logger.Prefix())
+	}
 	client := &Client{
-		Logger:   chshare.NewLogger("client"),
-		config:   config,
-		server:   u.String(),
-		running:  true,
-		runningc: make(chan error, 1),
+		Logger:     logger,
+		config:     config,
+		server:     u.String(),
+		running:    true,
+		runningc:   make(chan error, 1),
+		loopServer: loopServer,
 	}
 	client.Info = true
 
 	if p := config.HTTPProxy; p != "" {
 		client.httpProxyURL, err = url.Parse(p)
 		if err != nil {
-			return nil, fmt.Errorf("Invalid proxy URL (%s)", err)
+			return nil, fmt.Errorf("%s: Invalid proxy URL (%s)", logger.Prefix(), err)
 		}
 	}
 
@@ -104,6 +114,24 @@ func NewClient(config *Config) (*Client, error) {
 	}
 
 	return client, nil
+}
+
+// Implement LocalChannelEnv interface
+
+// IsServer returns true if this is a proxy server; false if it is a cliet
+func (c *Client) IsServer() bool {
+	return false
+}
+
+// GetLoopServer returns the shared LoopServer if loop protocol is enabled; nil otherwise
+func (c *Client) GetLoopServer() *chshare.LoopServer {
+	return c.loopServer
+}
+
+// GetSocksServer returns the shared socks5 server if socks protocol is enabled;
+// nil otherwise
+func (c *Client) GetSocksServer() *socks5.Server {
+	return c.socksServer
 }
 
 //Run starts client and blocks while connected

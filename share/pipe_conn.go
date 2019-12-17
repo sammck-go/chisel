@@ -1,15 +1,19 @@
 package chshare
 
 import (
+	"fmt"
 	"io"
+	"sync"
+	"sync/atomic"
 )
 
 // PipeConn implements a local ChannelConn from a read stream and a write stream (e.g., stdin and stdout)
 type PipeConn struct {
 	BasicConn
-	input       io.ReadCloser
-	output      io.WriteCloser
-	writeClosed bool
+	input          io.ReadCloser
+	output         io.WriteCloser
+	closeWriteOnce sync.Once
+	closeWriteErr  error
 }
 
 // NewPipeConn creates a new PipeConn
@@ -17,6 +21,7 @@ func NewPipeConn(logger *Logger, input io.ReadCloser, output io.WriteCloser) (*P
 	c := &PipeConn{
 		BasicConn: BasicConn{
 			Logger: logger.Fork("PipeConn: (%s->%s)", input, output),
+			Done:   make(chan struct{}),
 		},
 		input:  input,
 		output: output,
@@ -34,24 +39,45 @@ func (c *PipeConn) String() string {
 // sends a request, closes the write side of the Pipe, then reads the response, and a server reads
 // a request until end-of-stream before sending a response. Part of the ChannelConn interface
 func (c *PipeConn) CloseWrite() error {
-	err := c.output.Close()
-	return err
+	c.closeWriteOnce.Do(func() {
+		c.closeWriteErr = c.output.Close()
+	})
+	return c.closeWriteErr
 }
 
 // Close implements the Closer interface
 func (c *PipeConn) Close() error {
-	c.output.Close()
-	// ignore errors on output close (may have been shutdown with CloseWrite())
-	err := c.input.Close()
-	return err
+	c.CloseOnce.Do(func() {
+
+		// ignore errors on output close (may have been shutdown with CloseWrite())
+		err := c.input.Close()
+		if err != nil {
+			err = fmt.Errorf("%s: %s", c.Logger.Prefix(), err)
+		}
+		c.CloseErr = err
+		c.Done <- struct{}{}
+	})
+
+	<-c.Done
+	return c.CloseErr
+}
+
+// WaitForClose blocks until the Close() method has been called and completed
+func (c *PipeConn) WaitForClose() error {
+	<-c.Done
+	return c.CloseErr
 }
 
 // Read implements the Reader interface
 func (c *PipeConn) Read(p []byte) (n int, err error) {
-	return c.input.Read(p)
+	n, err = c.input.Read(p)
+	atomic.AddInt64(&c.NumBytesRead, int64(n))
+	return n, err
 }
 
 // Write implements the Writer interface
 func (c *PipeConn) Write(p []byte) (n int, err error) {
-	return c.output.Write(p)
+	n, err = c.output.Write(p)
+	atomic.AddInt64(&c.NumBytesWritten, int64(n))
+	return n, err
 }

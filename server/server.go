@@ -2,6 +2,7 @@ package chserver
 
 import (
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -25,6 +26,7 @@ type Config struct {
 	Auth     string
 	Proxy    string
 	Socks5   bool
+	NoLoop   bool
 	Reverse  bool
 	Debug    bool
 }
@@ -39,6 +41,7 @@ type Server struct {
 	sessCount    int32
 	sessions     *chshare.Users
 	socksServer  *socks5.Server
+	loopServer   *chshare.LoopServer
 	sshConfig    *ssh.ServerConfig
 	users        *chshare.UserIndex
 	reverseOk    bool
@@ -119,11 +122,39 @@ func NewServer(config *Config) (*Server, error) {
 		}
 		s.Infof("SOCKS5 server enabled")
 	}
+	//setup socks server (not listening on any port!)
+	if config.NoLoop {
+		s.Infof("Loop server disabled")
+	} else {
+		s.loopServer, err = chshare.NewLoopServer(s.Logger)
+		if err != nil {
+			return nil, fmt.Errorf("%s: Could not create loopback server: %s", s.Logger.Prefix(), err)
+		}
+	}
+
 	//print when reverse tunnelling is enabled
 	if config.Reverse {
 		s.Infof("Reverse tunnelling enabled")
 	}
 	return s, nil
+}
+
+// Implement LocalChannelEnv interface
+
+// IsServer returns true if this is a proxy server; false if it is a cliet
+func (s *Server) IsServer() bool {
+	return true
+}
+
+// GetLoopServer returns the shared LoopServer if loop protocol is enabled; nil otherwise
+func (s *Server) GetLoopServer() *chshare.LoopServer {
+	return s.loopServer
+}
+
+// GetSocksServer returns the shared socks5 server if socks protocol is enabled;
+// nil otherwise
+func (s *Server) GetSocksServer() *socks5.Server {
+	return s.socksServer
 }
 
 // Run is responsible for starting the chisel service
