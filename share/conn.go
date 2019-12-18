@@ -51,5 +51,3 @@ func (c *BasicConn) GetNumBytesRead() int64 {
 func (c *BasicConn) GetNumBytesWritten() int64 {
 	return atomic.LoadInt64(&c.NumBytesWritten)
 }
-
-

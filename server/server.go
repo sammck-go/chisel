@@ -139,24 +139,6 @@ func NewServer(config *Config) (*Server, error) {
 	return s, nil
 }
 
-// Implement LocalChannelEnv interface
-
-// IsServer returns true if this is a proxy server; false if it is a cliet
-func (s *Server) IsServer() bool {
-	return true
-}
-
-// GetLoopServer returns the shared LoopServer if loop protocol is enabled; nil otherwise
-func (s *Server) GetLoopServer() *chshare.LoopServer {
-	return s.loopServer
-}
-
-// GetSocksServer returns the shared socks5 server if socks protocol is enabled;
-// nil otherwise
-func (s *Server) GetSocksServer() *socks5.Server {
-	return s.socksServer
-}
-
 // Run is responsible for starting the chisel service
 func (s *Server) Run(host, port string) error {
 	if err := s.Start(host, port); err != nil {

@@ -1,7 +1,7 @@
 syntax = "proto3";
 option go_package = "github.com/XevoInc/chisel/chprotobuf";
 
-enum PbEndpointRole { STUB = 0; SKELETON = 1; };
+enum PbEndpointRole { UNKNOWN=0; STUB=1; SKELETON=2; };
 
 message PbEndpointDescriptor {
   PbEndpointRole                                 Role = 1;

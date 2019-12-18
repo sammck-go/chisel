@@ -2,6 +2,7 @@ package chshare
 
 import (
 	"fmt"
+	"github.com/XevoInc/chisel/chprotobuf"
 )
 
 // ChannelDescriptor describes a pair of endpoints, one on the client proxy and one
@@ -65,6 +66,32 @@ func (d ChannelDescriptor) LongString() string {
 	}
 
 	return "ChannelDescriptor(reverse='" + reverseStr + "', stub=" + d.Stub.LongString() + ", skeleton=" + d.Skeleton.LongString() + ")"
+}
+
+// ToPb converts a ChannelEndpointDescriptor to its protobuf value
+func (d *ChannelDescriptor) ToPb() *chprotobuf.PbChannelDescriptor {
+	return &chprotobuf.PbChannelDescriptor{
+		Reverse:            d.Reverse,
+		StubDescriptor:     d.Stub.ToPb(),
+		SkeletonDescriptor: d.Skeleton.ToPb(),
+	}
+}
+
+// FromPb initializes a ChannelDescriptor from its protobuf value
+func (d *ChannelDescriptor) FromPb(pb *chprotobuf.PbChannelDescriptor) {
+	d.Reverse = pb.GetReverse()
+	d.Stub = PbToChannelEndpointDescriptor(pb.GetStubDescriptor())
+	d.Skeleton = PbToChannelEndpointDescriptor(pb.GetSkeletonDescriptor())
+}
+
+// PbToChannelDescriptor returns a ChannelDescriptor from its protobuf value
+func PbToChannelDescriptor(pb *chprotobuf.PbChannelDescriptor) *ChannelDescriptor {
+	cd := &ChannelDescriptor{
+		Reverse:  pb.GetReverse(),
+		Stub:     PbToChannelEndpointDescriptor(pb.GetStubDescriptor()),
+		Skeleton: PbToChannelEndpointDescriptor(pb.GetSkeletonDescriptor()),
+	}
+	return cd
 }
 
 // Fully qualified ChannelDescriptor
@@ -244,4 +271,3 @@ func ParseChannelDescriptor(s string) (*ChannelDescriptor, error) {
 
 	return d, nil
 }
-

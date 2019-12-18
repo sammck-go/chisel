@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	chshare "github.com/XevoInc/chisel/share"
@@ -21,7 +21,7 @@ import (
 
 //Config represents a client configuration
 type Config struct {
-	shared           *chshare.Config
+	shared           *chshare.SessionConfigRequest
 	Fingerprint      string
 	Auth             string
 	KeepAlive        time.Duration
@@ -36,9 +36,12 @@ type Config struct {
 //Client represents a client instance
 type Client struct {
 	*chshare.Logger
+	lock         sync.Mutex
 	config       *Config
 	sshConfig    *ssh.ClientConfig
 	sshConn      ssh.Conn
+	sshConnReady chan struct{}
+	sshConnErr   error
 	httpProxyURL *url.URL
 	server       string
 	running      bool
@@ -73,7 +76,7 @@ func NewClient(config *Config) (*Client, error) {
 	}
 	//swap to websockets scheme
 	u.Scheme = strings.Replace(u.Scheme, "http", "ws", 1)
-	shared := &chshare.Config{}
+	shared := &chshare.SessionConfigRequest{}
 	for _, s := range config.ChdStrings {
 		chd, err := chshare.ParseChannelDescriptor(s)
 		if err != nil {
@@ -87,12 +90,13 @@ func NewClient(config *Config) (*Client, error) {
 		return nil, fmt.Errorf("%s: Failed to start loop server", logger.Prefix())
 	}
 	client := &Client{
-		Logger:     logger,
-		config:     config,
-		server:     u.String(),
-		running:    true,
-		runningc:   make(chan error, 1),
-		loopServer: loopServer,
+		Logger:       logger,
+		config:       config,
+		sshConnReady: make(chan struct{}),
+		server:       u.String(),
+		running:      true,
+		runningc:     make(chan error, 1),
+		loopServer:   loopServer,
 	}
 	client.Info = true
 
@@ -121,6 +125,16 @@ func NewClient(config *Config) (*Client, error) {
 // IsServer returns true if this is a proxy server; false if it is a cliet
 func (c *Client) IsServer() bool {
 	return false
+}
+
+// GetSSHConn waits for and returns the main ssh.Conn that this proxy is using to
+// communicate with the remote proxy. It is possible that goroutines servicing
+// local stub sockets will ask for this before it is available (if for example
+// a listener on the client accepts a connection before the server has ackknowledged
+// configuration.
+func (c *Client) GetSSHConn() (ssh.Conn, error) {
+	<-c.sshConnReady
+	return c.sshConn, c.sshConnErr
 }
 
 // GetLoopServer returns the shared LoopServer if loop protocol is enabled; nil otherwise
@@ -192,7 +206,7 @@ func (c *Client) keepAliveLoop() {
 func (c *Client) connectionLoop(ctx context.Context) {
 	//connection loop!
 	var connerr error
-	stdioStarted := false
+	// stdioStarted := false
 	b := &backoff.Backoff{Max: c.config.MaxRetryInterval}
 	for c.running {
 		if connerr != nil {
@@ -245,6 +259,7 @@ func (c *Client) connectionLoop(ctx context.Context) {
 		c.Debugf("Handshaking...")
 		sshConn, chans, reqs, err := ssh.NewClientConn(conn, "", c.sshConfig)
 		if err != nil {
+			c.sshConnErr = err
 			if strings.Contains(err.Error(), "unable to authenticate") {
 				c.Infof("Authentication failed")
 				c.Debugf(err.Error())
@@ -254,48 +269,64 @@ func (c *Client) connectionLoop(ctx context.Context) {
 			break
 		}
 		c.config.shared.Version = chshare.BuildVersion
-		conf, _ := chshare.EncodeConfig(c.config.shared)
-		c.Debugf("Sending config")
+		conf, _ := c.config.shared.Marshal()
+		c.Debugf("Sending session config request")
 		t0 := time.Now()
 		_, configerr, err := sshConn.SendRequest("config", true, conf)
 		if err != nil {
-			c.Infof("Config verification failed")
+			c.sshConnErr = err
+			c.Infof("Session config verification failed")
 			break
 		}
 		if len(configerr) > 0 {
 			c.Infof(string(configerr))
+			c.sshConnErr = fmt.Errorf("SSH server returned binary config error: %v", configerr)
 			break
 		}
 		c.Infof("Connected (Latency %s)", time.Since(t0))
 		//connected
 		b.Reset()
-		c.sshConn = sshConn
 		go ssh.DiscardRequests(reqs)
+		c.sshConn = sshConn
 
-		if !stdioStarted {
-			stdioStarted = true
-			//prepare stdio proxy, which we deferred til we had a good connection)
-			for i, chd := range c.config.shared.ChannelDescriptors {
-				if !chd.Reverse && chd.Stub.Type == chshare.ChannelEndpointTypeStdio {
-					proxy := chshare.NewTCPProxy(c.Logger, func() ssh.Conn { return c.sshConn }, i, chd)
-					if err := proxy.Start(ctx); err != nil {
-						c.Infof("Start of stdio proxy failed: %s", err)
-						// TODO: stop the client
-					}
-					break
-				}
-			}
-		}
+		// wake up anyone waiting for our ssh connection to be ready
+		close(c.sshConnReady)
+
+		/*
+		   if !stdioStarted {
+		     stdioStarted = true
+		     //prepare stdio proxy, which we deferred til we had a good connection)
+		     for i, chd := range c.config.shared.ChannelDescriptors {
+		       if !chd.Reverse && chd.Stub.Type == chshare.ChannelEndpointTypeStdio {
+		         proxy := chshare.NewTCPProxy(c.Logger, func() ssh.Conn { return c.sshConn }, i, chd)
+		         if err := proxy.Start(ctx); err != nil {
+		           c.Infof("Start of stdio proxy failed: %s", err)
+		           // TODO: stop the client
+		         }
+		         break
+		       }
+		     }
+		   }
+		*/
 
 		go c.connectStreams(chans)
 		err = sshConn.Wait()
+
 		//disconnected
-		c.sshConn = nil
-		if err != nil && err != io.EOF {
-			connerr = err
-			continue
-		}
+
+		// sammck: it is *not* ok to reset c.sshConn to nil after we have stub endpoints running
+		//    The safest thing is to shut down here
+		// c.sshConn = nil
+		// if err != nil && err != io.EOF {
+		//   connerr = err
+		//   continue
+		//   }
 		c.Infof("Disconnected\n")
+
+		break
+	}
+	if c.sshConn == nil {
+		close(c.sshConnReady)
 	}
 	close(c.runningc)
 }
@@ -317,17 +348,17 @@ func (c *Client) Close() error {
 
 /*
 func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
-	for ch := range chans {
-		remote := string(ch.ExtraData())
-		stream, reqs, err := ch.Accept()
-		if err != nil {
-			c.Debugf("Failed to accept stream: %s", err)
-			continue
-		}
-		go ssh.DiscardRequests(reqs)
-		l := c.Logger.Fork("conn#%d", c.connStats.New())
-		go chshare.HandleTCPStream(l, &c.connStats, stream, remote)
-	}
+  for ch := range chans {
+    remote := string(ch.ExtraData())
+    stream, reqs, err := ch.Accept()
+    if err != nil {
+      c.Debugf("Failed to accept stream: %s", err)
+      continue
+    }
+    go ssh.DiscardRequests(reqs)
+    l := c.Logger.Fork("conn#%d", c.connStats.New())
+    go chshare.HandleTCPStream(l, &c.connStats, stream, remote)
+  }
 }
 */
 

@@ -65,9 +65,9 @@ func (ep *StdioSkeletonEndpoint) Dial(ctx context.Context, extraData []byte) (Ch
 //        Number of bytes sent from the dialed calledServiceConn callerConn
 //        An error, if one occured during dial or copy in either direction
 func (ep *StdioSkeletonEndpoint) DialAndServe(
-		ctx context.Context,
-		callerConn ChannelConn,
-		extraData []byte,
+	ctx context.Context,
+	callerConn ChannelConn,
+	extraData []byte,
 ) (int64, int64, error) {
 	calledServiceConn, err := ep.Dial(ctx, extraData)
 	if err != nil {

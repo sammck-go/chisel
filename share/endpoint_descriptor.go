@@ -2,10 +2,10 @@ package chshare
 
 import (
 	"fmt"
+	"github.com/XevoInc/chisel/chprotobuf"
 	"strconv"
 	"strings"
 )
-
 
 // ChannelEndpointRole defines whether an endpoint is acting as
 // the Stub or the Skeleton for al ChannelEndpointPair
@@ -31,6 +31,41 @@ const (
 	// locally avaiable services
 	ChannelEndpointRoleSkeleton ChannelEndpointRole = "skeleton"
 )
+
+var pbEndpointRoleToChannelEndpointRole = map[chprotobuf.PbEndpointRole]ChannelEndpointRole{
+	chprotobuf.PbEndpointRole_UNKNOWN:  ChannelEndpointRoleUnknown,
+	chprotobuf.PbEndpointRole_STUB:     ChannelEndpointRoleStub,
+	chprotobuf.PbEndpointRole_SKELETON: ChannelEndpointRoleSkeleton,
+}
+
+var channelEndpointRoleToPbEndpointRole = map[ChannelEndpointRole]chprotobuf.PbEndpointRole{
+	ChannelEndpointRoleUnknown:  chprotobuf.PbEndpointRole_UNKNOWN,
+	ChannelEndpointRoleStub:     chprotobuf.PbEndpointRole_STUB,
+	ChannelEndpointRoleSkeleton: chprotobuf.PbEndpointRole_SKELETON,
+}
+
+// ToPb converts a ChannelEndpointRole to its protobuf value
+func (x ChannelEndpointRole) ToPb() chprotobuf.PbEndpointRole {
+	result, ok := channelEndpointRoleToPbEndpointRole[x]
+	if !ok {
+		result = chprotobuf.PbEndpointRole_UNKNOWN
+	}
+	return result
+}
+
+// PbToChannelEndpointRole returns a ChannelEndpointRole from its protobuf value
+func PbToChannelEndpointRole(pbRole chprotobuf.PbEndpointRole) ChannelEndpointRole {
+	result, ok := pbEndpointRoleToChannelEndpointRole[pbRole]
+	if !ok {
+		result = ChannelEndpointRoleUnknown
+	}
+	return result
+}
+
+// FromPb initializes a ChannelEndpointRole from its protobuf value
+func (x *ChannelEndpointRole) FromPb(pbRole chprotobuf.PbEndpointRole) {
+	*x = PbToChannelEndpointRole(pbRole)
+}
 
 // ChannelEndpointType describes the protocol used for a particular endpoint
 type ChannelEndpointType string
@@ -72,6 +107,21 @@ const (
 	ChannelEndpointTypeLoop ChannelEndpointType = "loop"
 )
 
+// ToPb converts a ChannelEndpointType to its protobuf value
+func (x ChannelEndpointType) ToPb() string {
+	return string(x)
+}
+
+// PbToChannelEndpointType returns a ChannelEndpointType from its protobuf value
+func PbToChannelEndpointType(pbType string) ChannelEndpointType {
+	return ChannelEndpointType(pbType)
+}
+
+// FromPb initializes a ChannelEndpointType from its protobuf value
+func (x *ChannelEndpointType) FromPb(pbType string) {
+	*x = PbToChannelEndpointType(pbType)
+}
+
 // ChannelEndpointDescriptor describes one end of a ChannelDescriptor
 type ChannelEndpointDescriptor struct {
 	// Which end of the tunnel pair this endpoint occupies (Stub or Skeleton)
@@ -93,6 +143,32 @@ type ChannelEndpointDescriptor struct {
 	//     Loop    Stub        <loop-endpoint-name> for listen
 	//     Loop    Skeleton    <loop-endpoint-name> for connect
 	Path string `json:"path"`
+}
+
+// ToPb converts a ChannelEndpointDescriptor to its protobuf value
+func (d *ChannelEndpointDescriptor) ToPb() *chprotobuf.PbEndpointDescriptor {
+	return &chprotobuf.PbEndpointDescriptor{
+		Role: d.Role.ToPb(),
+		Type: d.Type.ToPb(),
+		Path: d.Path,
+	}
+}
+
+// FromPb initializes a ChannelEndpointDescriptor from its protobuf value
+func (d *ChannelEndpointDescriptor) FromPb(pb *chprotobuf.PbEndpointDescriptor) {
+	d.Role.FromPb(pb.GetRole())
+	d.Type.FromPb(pb.GetType())
+	d.Path = pb.GetPath()
+}
+
+// PbToChannelEndpointDescriptor returns a ChannelEndpointDescriptor from its protobuf value
+func PbToChannelEndpointDescriptor(pb *chprotobuf.PbEndpointDescriptor) *ChannelEndpointDescriptor {
+	ced := &ChannelEndpointDescriptor{
+		Role: PbToChannelEndpointRole(pb.GetRole()),
+		Type: PbToChannelEndpointType(pb.GetType()),
+		Path: pb.GetPath(),
+	}
+	return ced
 }
 
 // Validate a ChannelEndpointDescriptor
@@ -565,4 +641,3 @@ func ParseChannelEndpointDescriptor(s string, role ChannelEndpointRole) (*Channe
 	}
 	return d, nil
 }
-

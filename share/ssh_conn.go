@@ -12,6 +12,7 @@ import (
 type SSHConn struct {
 	BasicConn
 	rawSSHConn ssh.Channel
+	LocalChannelEnv
 }
 
 // NewSSHConn creates a new SSHConn

@@ -11,7 +11,7 @@ type LoopStubEndpoint struct {
 	// Implements LocalStubChannelEndpoint
 	BasicEndpoint
 	loopServer *LoopServer
-	listening bool
+	listening  bool
 	// callerConns contains a queue of Caller ChannelCons that are
 	// waiting to be accepted with an Accept call
 	callerConns chan ChannelConn
@@ -29,8 +29,8 @@ func NewLoopStubEndpoint(
 			Logger: myLogger,
 			ced:    ced,
 		},
-		loopServer: loopServer,
-		callerConns: make(chan ChannelConn, 5),  // Allow a backlog of 5 connect requests before Accept()
+		loopServer:  loopServer,
+		callerConns: make(chan ChannelConn, 5), // Allow a backlog of 5 connect requests before Accept()
 	}
 	return ep, nil
 }
@@ -65,7 +65,7 @@ func (ep *LoopStubEndpoint) Close() error {
 				dc.Close()
 			}
 		}
-  	close(ep.callerConns)
+		close(ep.callerConns)
 	}
 
 	return nil
@@ -80,11 +80,11 @@ func (ep *LoopStubEndpoint) StartListening() error {
 	defer ep.lock.Unlock()
 	if !ep.listening {
 		if ep.closed {
-  		return fmt.Errorf("%s: endpoint is closed", ep.Logger.Prefix())
+			return fmt.Errorf("%s: endpoint is closed", ep.Logger.Prefix())
 		}
 		err := ep.loopServer.RegisterAcceptor(ep.GetLoopPath(), ep)
 		if err != nil {
-  		return fmt.Errorf("%s: StartListening failed: %s", ep.Logger.Prefix(), err)
+			return fmt.Errorf("%s: StartListening failed: %s", ep.Logger.Prefix(), err)
 		}
 	}
 	return nil
@@ -97,7 +97,7 @@ func (ep *LoopStubEndpoint) StartListening() error {
 func (ep *LoopStubEndpoint) Accept(ctx context.Context) (ChannelConn, error) {
 	dialConn, ok := <-ep.callerConns
 	if !ok {
-  	return nil, fmt.Errorf("%s: endpoint is closed", ep.Logger.Prefix())
+		return nil, fmt.Errorf("%s: endpoint is closed", ep.Logger.Prefix())
 	}
 	return dialConn, nil
 }
@@ -127,7 +127,7 @@ func (ep *LoopStubEndpoint) AcceptAndServe(ctx context.Context, calledServiceCon
 }
 
 // EnqueueCallerConn provides a ChannelConn to be returned by a future or pending Accept call
-func(ep *LoopStubEndpoint) EnqueueCallerConn(dialConn ChannelConn) error {
+func (ep *LoopStubEndpoint) EnqueueCallerConn(dialConn ChannelConn) error {
 	ep.lock.Lock()
 	defer ep.lock.Unlock()
 	if !ep.listening {

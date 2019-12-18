@@ -17,7 +17,7 @@ func NewSocketConn(logger *Logger, netConn net.Conn) (*SocketConn, error) {
 	c := &SocketConn{
 		BasicConn: BasicConn{
 			Logger: logger.Fork("SocketConn: %s", netConn),
-			Done: make(chan struct{}),
+			Done:   make(chan struct{}),
 		},
 		netConn: netConn,
 	}

@@ -28,7 +28,7 @@ func NewHTTPServer() *HTTPServer {
 
 // GoListenAndServe starts an HTTP server running in the background
 // on the given bind address, invoking the provided handler for each
-// request. 
+// request.
 func (h *HTTPServer) GoListenAndServe(addr string, handler http.Handler) error {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {

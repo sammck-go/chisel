@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -45,6 +46,28 @@ func (s *Server) handleClientHandler(w http.ResponseWriter, r *http.Request) {
 	//missing :O
 	w.WriteHeader(404)
 	w.Write([]byte("Not found"))
+}
+
+// ServerSSHSession wraps a primary SSH connection with a single client proxy
+type ServerSSHSession struct {
+	*Logger
+	server  *Server
+	id      int32
+	sshConn *ssh.ServerConn
+	chans   chan ssh.NewChannel
+	reqs    chan *ssh.Request
+}
+
+// NewServerSSHSession creates a server-side proxy session object from an incoming
+// client socket (which has already been extracted from a websocket tunnel)
+func NewServerSSHSession(server *Server, id int32, conn net.Conn) (*ServerSSHSession, error) {
+
+}
+
+// AllocSessionID allocates a monotonically incresing session ID number (for debugging/logging only)
+func (s *Server) AllocSessionID() int32 {
+	id := atomic.AddInt32(&s.sessCount, 1)
+	return id
 }
 
 // handleWebsocket is responsible for handling the websocket connection
@@ -90,9 +113,10 @@ func (s *Server) handleWebsocket(w http.ResponseWriter, req *http.Request) {
 		failed(s.Errorf("expecting config request"))
 		return
 	}
-	c, err := chshare.DecodeConfig(r.Payload)
+	c := &chshare.SessionConfigRequest{}
+	err = c.Unmarshal(r.Payload)
 	if err != nil {
-		failed(s.Errorf("invalid config"))
+		failed(s.Errorf("Invalid session config request: %s", err))
 		return
 	}
 	//print if client and server  versions dont match
@@ -202,12 +226,12 @@ func (s *Server) handleSSHChannels(clientLog *chshare.Logger, chans <-chan ssh.N
 		}()
 
 		/*
-			connID := s.connStats.New()
-			if socks {
-				go s.handleSocksStream(clientLog.Fork("socksconn#%d", connID), stream)
-			} else {
-				go chshare.HandleTCPStream(clientLog.Fork("conn#%d", connID), &s.connStats, stream, epd.Path)
-			}
+		   connID := s.connStats.New()
+		   if socks {
+		     go s.handleSocksStream(clientLog.Fork("socksconn#%d", connID), stream)
+		   } else {
+		     go chshare.HandleTCPStream(clientLog.Fork("conn#%d", connID), &s.connStats, stream, epd.Path)
+		   }
 		*/
 	}
 }
