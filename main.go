@@ -320,7 +320,7 @@ func client(ctx context.Context, args []string) {
 		generatePidFile()
 	}
 	go chshare.GoStats()
-	if err = c.Run(); err != nil {
+	if err = c.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }

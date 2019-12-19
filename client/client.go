@@ -149,10 +149,10 @@ func (c *Client) GetSocksServer() *socks5.Server {
 }
 
 //Run starts client and blocks while connected
-func (c *Client) Run() error {
-	ctx, cancel := context.WithCancel(context.Background())
+func (c *Client) Run(ctx context.Context) error {
+	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	if err := c.Start(ctx); err != nil {
+	if err := c.Start(subCtx); err != nil {
 		return err
 	}
 	return c.Wait()
