@@ -17,20 +17,11 @@ type SSHConn struct {
 
 // NewSSHConn creates a new SSHConn
 func NewSSHConn(logger *Logger, rawSSHConn ssh.Channel) (*SSHConn, error) {
-	id := AllocBasicConnID()
 	c := &SSHConn{
-		BasicConn: BasicConn{
-			Logger: logger.Fork("SSHConn#%d", id),
-			id:     id,
-			Done:   make(chan struct{}),
-		},
 		rawSSHConn: rawSSHConn,
 	}
+	c.InitBasicConn(logger, "SSHConn")
 	return c, nil
-}
-
-func (c *SSHConn) String() string {
-	return fmt.Sprintf("SSHConn#%d()", c.id)
 }
 
 // CloseWrite shuts down the writing side of the "socket". Corresponds to net.TCPConn.CloseWrite().

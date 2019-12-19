@@ -14,20 +14,11 @@ type SocketConn struct {
 
 // NewSocketConn creates a new SocketConn
 func NewSocketConn(logger *Logger, netConn net.Conn) (*SocketConn, error) {
-	id := AllocBasicConnID()
 	c := &SocketConn{
-		BasicConn: BasicConn{
-			Logger: logger.Fork("SocketConn#%d(%s)", id, netConn.RemoteAddr()),
-			id:     id,
-			Done:   make(chan struct{}),
-		},
 		netConn: netConn,
 	}
+	c.InitBasicConn(logger, "SocketConn(%s)", netConn.RemoteAddr())
 	return c, nil
-}
-
-func (c *SocketConn) String() string {
-	return c.Logger.Prefix()
 }
 
 // CloseWrite shuts down the writing side of the "socket". Corresponds to net.TCPConn.CloseWrite().

@@ -19,14 +19,10 @@ type PipeConn struct {
 // NewPipeConn creates a new PipeConn
 func NewPipeConn(logger *Logger, input io.ReadCloser, output io.WriteCloser) (*PipeConn, error) {
 	c := &PipeConn{
-		BasicConn: BasicConn{
-			Logger: logger.Fork("PipeConn: (%s->%s)", input, output),
-			id:     AllocBasicConnID(),
-			Done:   make(chan struct{}),
-		},
 		input:  input,
 		output: output,
 	}
+	c.InitBasicConn(logger, "PipeConn(%s->%s)", input, output)
 	return c, nil
 }
 

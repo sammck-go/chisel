@@ -9,8 +9,6 @@ import (
 	"os"
 	"strconv"
 
-	chclient "github.com/XevoInc/chisel/client"
-	chserver "github.com/XevoInc/chisel/server"
 	chshare "github.com/XevoInc/chisel/share"
 )
 
@@ -177,7 +175,7 @@ func server(ctx context.Context, args []string) {
 	if *key == "" {
 		*key = os.Getenv("CHISEL_KEY")
 	}
-	s, err := chserver.NewServer(&chserver.Config{
+	s, err := chshare.NewServer(&chshare.ProxyServerConfig{
 		KeySeed:  *key,
 		AuthFile: *authfile,
 		Auth:     *auth,
@@ -301,7 +299,7 @@ func client(ctx context.Context, args []string) {
 	if *auth == "" {
 		*auth = os.Getenv("AUTH")
 	}
-	c, err := chclient.NewClient(&chclient.Config{
+	c, err := chshare.NewClient(&chshare.Config{
 		Fingerprint:      *fingerprint,
 		Auth:             *auth,
 		KeepAlive:        *keepalive,

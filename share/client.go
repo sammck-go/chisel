@@ -1,4 +1,4 @@
-package chclient
+package chshare
 
 import (
 	"context"
@@ -11,8 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	chshare "github.com/XevoInc/chisel/share"
 	socks5 "github.com/armon/go-socks5"
 	"github.com/gorilla/websocket"
 	"github.com/jpillora/backoff"
@@ -21,7 +19,7 @@ import (
 
 //Config represents a client configuration
 type Config struct {
-	shared           *chshare.SessionConfigRequest
+	shared           *SessionConfigRequest
 	Fingerprint      string
 	Auth             string
 	KeepAlive        time.Duration
@@ -35,7 +33,7 @@ type Config struct {
 
 //Client represents a client instance
 type Client struct {
-	*chshare.Logger
+	*Logger
 	lock         sync.Mutex
 	config       *Config
 	sshConfig    *ssh.ClientConfig
@@ -46,15 +44,15 @@ type Client struct {
 	server       string
 	running      bool
 	runningc     chan error
-	connStats    chshare.ConnStats
+	connStats    ConnStats
 	socksServer  *socks5.Server
-	loopServer   *chshare.LoopServer
+	loopServer   *LoopServer
 }
 
 //NewClient creates a new client instance
 func NewClient(config *Config) (*Client, error) {
 	//apply default scheme
-	logger := chshare.NewLogger("client")
+	logger := NewLogger("client")
 
 	if !strings.HasPrefix(config.Server, "http") {
 		config.Server = "http://" + config.Server
@@ -76,16 +74,16 @@ func NewClient(config *Config) (*Client, error) {
 	}
 	//swap to websockets scheme
 	u.Scheme = strings.Replace(u.Scheme, "http", "ws", 1)
-	shared := &chshare.SessionConfigRequest{}
+	shared := &SessionConfigRequest{}
 	for _, s := range config.ChdStrings {
-		chd, err := chshare.ParseChannelDescriptor(s)
+		chd, err := ParseChannelDescriptor(s)
 		if err != nil {
 			return nil, fmt.Errorf("%s: Failed to parse channel descriptor string '%s': %s", logger.Prefix(), s, err)
 		}
 		shared.ChannelDescriptors = append(shared.ChannelDescriptors, chd)
 	}
 	config.shared = shared
-	loopServer, err := chshare.NewLoopServer(logger)
+	loopServer, err := NewLoopServer(logger)
 	if err != nil {
 		return nil, fmt.Errorf("%s: Failed to start loop server", logger.Prefix())
 	}
@@ -107,12 +105,12 @@ func NewClient(config *Config) (*Client, error) {
 		}
 	}
 
-	user, pass := chshare.ParseAuth(config.Auth)
+	user, pass := ParseAuth(config.Auth)
 
 	client.sshConfig = &ssh.ClientConfig{
 		User:            user,
 		Auth:            []ssh.AuthMethod{ssh.Password(pass)},
-		ClientVersion:   "SSH-" + chshare.ProtocolVersion + "-client",
+		ClientVersion:   "SSH-" + ProtocolVersion + "-client",
 		HostKeyCallback: client.verifyServer,
 		Timeout:         30 * time.Second,
 	}
@@ -138,7 +136,7 @@ func (c *Client) GetSSHConn() (ssh.Conn, error) {
 }
 
 // GetLoopServer returns the shared LoopServer if loop protocol is enabled; nil otherwise
-func (c *Client) GetLoopServer() *chshare.LoopServer {
+func (c *Client) GetLoopServer() *LoopServer {
 	return c.loopServer
 }
 
@@ -160,7 +158,7 @@ func (c *Client) Run(ctx context.Context) error {
 
 func (c *Client) verifyServer(hostname string, remote net.Addr, key ssh.PublicKey) error {
 	expect := c.config.Fingerprint
-	got := chshare.FingerprintKey(key)
+	got := FingerprintKey(key)
 	if expect != "" && !strings.HasPrefix(got, expect) {
 		return fmt.Errorf("Invalid fingerprint (%s)", got)
 	}
@@ -177,8 +175,8 @@ func (c *Client) Start(ctx context.Context) error {
 	}
 	//prepare non-reverse proxies (other than stdio proxy, which we defer til we have a good connection)
 	for i, chd := range c.config.shared.ChannelDescriptors {
-		if !chd.Reverse && chd.Stub.Type != chshare.ChannelEndpointTypeStdio {
-			proxy := chshare.NewTCPProxy(c.Logger, func() ssh.Conn { return c.sshConn }, i, chd)
+		if !chd.Reverse && chd.Stub.Type != ChannelEndpointTypeStdio {
+			proxy := NewTCPProxy(c.Logger, func() ssh.Conn { return c.sshConn }, i, chd)
 			if err := proxy.Start(ctx); err != nil {
 				return err
 			}
@@ -229,13 +227,13 @@ func (c *Client) connectionLoop(ctx context.Context) {
 			}
 			c.Infof("Retrying in %s...", d)
 			connerr = nil
-			chshare.SleepSignal(d)
+			SleepSignal(d)
 		}
 		d := websocket.Dialer{
 			ReadBufferSize:   1024,
 			WriteBufferSize:  1024,
 			HandshakeTimeout: 45 * time.Second,
-			Subprotocols:     []string{chshare.ProtocolVersion},
+			Subprotocols:     []string{ProtocolVersion},
 		}
 		//optionally CONNECT proxy
 		if c.httpProxyURL != nil {
@@ -254,7 +252,7 @@ func (c *Client) connectionLoop(ctx context.Context) {
 			connerr = err
 			continue
 		}
-		conn := chshare.NewWebSocketConn(wsConn)
+		conn := NewWebSocketConn(wsConn)
 		// perform SSH handshake on net.Conn
 		c.Debugf("Handshaking...")
 		sshConn, chans, reqs, err := ssh.NewClientConn(conn, "", c.sshConfig)
@@ -268,7 +266,7 @@ func (c *Client) connectionLoop(ctx context.Context) {
 			}
 			break
 		}
-		c.config.shared.Version = chshare.BuildVersion
+		c.config.shared.Version = BuildVersion
 		conf, _ := c.config.shared.Marshal()
 		c.Debugf("Sending session config request")
 		t0 := time.Now()
@@ -297,8 +295,8 @@ func (c *Client) connectionLoop(ctx context.Context) {
 		     stdioStarted = true
 		     //prepare stdio proxy, which we deferred til we had a good connection)
 		     for i, chd := range c.config.shared.ChannelDescriptors {
-		       if !chd.Reverse && chd.Stub.Type == chshare.ChannelEndpointTypeStdio {
-		         proxy := chshare.NewTCPProxy(c.Logger, func() ssh.Conn { return c.sshConn }, i, chd)
+		       if !chd.Reverse && chd.Stub.Type == ChannelEndpointTypeStdio {
+		         proxy := NewTCPProxy(c.Logger, func() ssh.Conn { return c.sshConn }, i, chd)
 		         if err := proxy.Start(ctx); err != nil {
 		           c.Infof("Start of stdio proxy failed: %s", err)
 		           // TODO: stop the client
@@ -357,7 +355,7 @@ func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
     }
     go ssh.DiscardRequests(reqs)
     l := c.Logger.Fork("conn#%d", c.connStats.New())
-    go chshare.HandleTCPStream(l, &c.connStats, stream, remote)
+    go HandleTCPStream(l, &c.connStats, stream, remote)
   }
 }
 */
@@ -365,7 +363,7 @@ func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
 func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
 	for ch := range chans {
 		epdJSON := ch.ExtraData()
-		var epd chshare.ChannelEndpointDescriptor
+		var epd ChannelEndpointDescriptor
 		err := json.Unmarshal(epdJSON, &epd)
 		if err != nil {
 			c.Debugf("Error: Remote channel connect request: bad JSON parameter string: '%s'", epdJSON)
@@ -373,27 +371,27 @@ func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
 			continue
 		}
 		c.Debugf("Remote channel connect request, endpoint ='%s'", epd.LongString())
-		if epd.Role != chshare.ChannelEndpointRoleSkeleton {
+		if epd.Role != ChannelEndpointRoleSkeleton {
 			c.Debugf("Error: Remote channel connect request: Role must be skeleton: '%s'", epd.LongString())
 			ch.Reject(ssh.Prohibited, "Endpoint role must be skeleton")
 			continue
 		}
-		if epd.Type == chshare.ChannelEndpointTypeStdio {
+		if epd.Type == ChannelEndpointTypeStdio {
 			c.Debugf("Error: Remote channel connect request: Client-side skeleton STDIO not yet supported: '%s'", epd.LongString())
 			ch.Reject(ssh.Prohibited, "Client-side skeleton STDIO not yet supported")
 			continue
 		}
-		if epd.Type == chshare.ChannelEndpointTypeLoop {
+		if epd.Type == ChannelEndpointTypeLoop {
 			c.Debugf("Error: Remote channel connect request: Loop channels not yet not supported: '%s'", epd.LongString())
 			ch.Reject(ssh.Prohibited, "Loop channels not yet supported")
 			continue
 		}
-		if epd.Type == chshare.ChannelEndpointTypeUnix {
+		if epd.Type == ChannelEndpointTypeUnix {
 			c.Debugf("Error: Remote channel connect request: Unix domain sockets not yet not supported: '%s'", epd.LongString())
 			ch.Reject(ssh.Prohibited, "Unix domain sockets not yet supported")
 			continue
 		}
-		if epd.Type == chshare.ChannelEndpointTypeSocks {
+		if epd.Type == ChannelEndpointTypeSocks {
 			c.Debugf("Error: Remote channel connect request: client-side SOCKS endpoint not yet not supported: '%s'", epd.LongString())
 			ch.Reject(ssh.Prohibited, "Client-side SOCKS endpoint not yet supported")
 			continue
@@ -409,6 +407,6 @@ func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
 		go ssh.DiscardRequests(reqs)
 		//handle stream type
 		l := c.Logger.Fork("conn#%d", c.connStats.New())
-		go chshare.HandleTCPStream(l, &c.connStats, stream, epd.Path)
+		go HandleTCPStream(l, &c.connStats, stream, epd.Path)
 	}
 }

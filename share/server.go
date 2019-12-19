@@ -1,7 +1,6 @@
-package chserver
+package chshare
 
 import (
-	chshare "github.com/XevoInc/chisel/share"
 	"context"
 	"errors"
 	"fmt"
@@ -18,8 +17,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Config is the configuration for the chisel service
-type Config struct {
+// ProxyServerConfig is the configuration for the chisel service
+type ProxyServerConfig struct {
 	KeySeed  string
 	AuthFile string
 	Auth     string
@@ -32,17 +31,16 @@ type Config struct {
 
 // Server respresent a chisel service
 type Server struct {
-	*chshare.Logger
-	connStats    chshare.ConnStats
+	*Logger
+	connStats    ConnStats
 	fingerprint  string
-	httpServer   *chshare.HTTPServer
+	httpServer   *HTTPServer
 	reverseProxy *httputil.ReverseProxy
-	sessCount    int32
-	sessions     *chshare.Users
+	sessions     *Users
 	socksServer  *socks5.Server
-	loopServer   *chshare.LoopServer
+	loopServer   *LoopServer
 	sshConfig    *ssh.ServerConfig
-	users        *chshare.UserIndex
+	users        *UserIndex
 	reverseOk    bool
 }
 
@@ -53,41 +51,41 @@ var upgrader = websocket.Upgrader{
 }
 
 // NewServer creates and returns a new chisel server
-func NewServer(config *Config) (*Server, error) {
-	logger := chshare.NewLogger("server")
+func NewServer(config *ProxyServerConfig) (*Server, error) {
+	logger := NewLogger("server")
 	s := &Server{
-		httpServer: chshare.NewHTTPServer(logger),
+		httpServer: NewHTTPServer(logger),
 		Logger:     logger,
-		sessions:   chshare.NewUsers(),
+		sessions:   NewUsers(),
 		reverseOk:  config.Reverse,
 	}
 	s.Info = true
 	s.Debug = config.Debug
-	s.users = chshare.NewUserIndex(s.Logger)
+	s.users = NewUserIndex(s.Logger)
 	if config.AuthFile != "" {
 		if err := s.users.LoadUsers(config.AuthFile); err != nil {
 			return nil, err
 		}
 	}
 	if config.Auth != "" {
-		u := &chshare.User{Addrs: []*regexp.Regexp{chshare.UserAllowAll}}
-		u.Name, u.Pass = chshare.ParseAuth(config.Auth)
+		u := &User{Addrs: []*regexp.Regexp{UserAllowAll}}
+		u.Name, u.Pass = ParseAuth(config.Auth)
 		if u.Name != "" {
 			s.users.AddUser(u)
 		}
 	}
 	//generate private key (optionally using seed)
-	key, _ := chshare.GenerateKey(config.KeySeed)
+	key, _ := GenerateKey(config.KeySeed)
 	//convert into ssh.PrivateKey
 	private, err := ssh.ParsePrivateKey(key)
 	if err != nil {
 		log.Fatal("Failed to parse key")
 	}
 	//fingerprint this key
-	s.fingerprint = chshare.FingerprintKey(private.PublicKey())
+	s.fingerprint = FingerprintKey(private.PublicKey())
 	//create ssh config
 	s.sshConfig = &ssh.ServerConfig{
-		ServerVersion:    "SSH-" + chshare.ProtocolVersion + "-server",
+		ServerVersion:    "SSH-" + ProtocolVersion + "-server",
 		PasswordCallback: s.authUser,
 	}
 	s.sshConfig.AddHostKey(private)
@@ -126,7 +124,7 @@ func NewServer(config *Config) (*Server, error) {
 	if config.NoLoop {
 		s.Infof("Loop server disabled")
 	} else {
-		s.loopServer, err = chshare.NewLoopServer(s.Logger)
+		s.loopServer, err = NewLoopServer(s.Logger)
 		if err != nil {
 			return nil, fmt.Errorf("%s: Could not create loopback server: %s", s.Logger.Prefix(), err)
 		}
@@ -211,7 +209,7 @@ func (s *Server) AddUser(user, pass string, addrs ...string) error {
 		authorizedAddrs = append(authorizedAddrs, authorizedAddr)
 	}
 
-	u := &chshare.User{Name: user, Pass: pass, Addrs: authorizedAddrs}
+	u := &User{Name: user, Pass: pass, Addrs: authorizedAddrs}
 	s.users.AddUser(u)
 	return nil
 }

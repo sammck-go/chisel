@@ -42,13 +42,22 @@ func AllocBasicConnID() int32 {
 type BasicConn struct {
 	ChannelConn
 	*Logger
-	id              int32
+	ID              int32
+	Strname         string
 	Lock            sync.Mutex
 	Done            chan struct{}
 	CloseOnce       sync.Once
 	CloseErr        error
 	NumBytesRead    int64
 	NumBytesWritten int64
+}
+
+// InitBasicConn initializes the BasicConn portion of a new connection object
+func (c *BasicConn) InitBasicConn(logger *Logger, namef string, args ...interface{}) {
+	c.ID = AllocBasicConnID()
+	c.Strname = fmt.Sprintf("[%d]", c.ID) + fmt.Sprintf(namef, args...)
+	c.Logger = logger.Fork(c.Strname)
+	c.Done = make(chan struct{})
 }
 
 // GetNumBytesRead returns the number of bytes read so far on a ChannelConn
@@ -63,5 +72,5 @@ func (c *BasicConn) GetNumBytesWritten() int64 {
 
 // GetNumBytesWritten returns the number of bytes written so far on a ChannelConn
 func (c *BasicConn) String() string {
-	return fmt.Sprintf("ChannelConn#%d", c.id)
+	return c.Strname
 }
