@@ -65,7 +65,7 @@ func (s *Server) handleClientHandler(ctx context.Context, w http.ResponseWriter,
 func (s *Server) handleWebsocket(ctx context.Context, wsConn *websocket.Conn) {
 	session, err := NewServerSSHSession(s)
 	if err != nil {
-		session.Debugf("Failed to create ProxySSHSession: %s", err)
+		session.Debugf("Failed to create ServerSSHSession: %s", err)
 		return
 	}
 	conn := NewWebSocketConn(wsConn)

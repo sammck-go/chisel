@@ -176,7 +176,7 @@ func (c *Client) Start(ctx context.Context) error {
 	//prepare non-reverse proxies (other than stdio proxy, which we defer til we have a good connection)
 	for i, chd := range c.config.shared.ChannelDescriptors {
 		if !chd.Reverse && chd.Stub.Type != ChannelEndpointTypeStdio {
-			proxy := NewTCPProxy(c.Logger, func() ssh.Conn { return c.sshConn }, i, chd)
+			proxy := NewTCPProxy(c.Logger, c, i, chd)
 			if err := proxy.Start(ctx); err != nil {
 				return err
 			}
@@ -307,7 +307,7 @@ func (c *Client) connectionLoop(ctx context.Context) {
 		   }
 		*/
 
-		go c.connectStreams(chans)
+		go c.connectStreams(ctx, chans)
 		err = sshConn.Wait()
 
 		//disconnected
@@ -344,69 +344,71 @@ func (c *Client) Close() error {
 	return c.sshConn.Close()
 }
 
-/*
-func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
-  for ch := range chans {
-    remote := string(ch.ExtraData())
-    stream, reqs, err := ch.Accept()
-    if err != nil {
-      c.Debugf("Failed to accept stream: %s", err)
-      continue
-    }
-    go ssh.DiscardRequests(reqs)
-    l := c.Logger.Fork("conn#%d", c.connStats.New())
-    go HandleTCPStream(l, &c.connStats, stream, remote)
-  }
-}
-*/
-
-func (c *Client) connectStreams(chans <-chan ssh.NewChannel) {
+func (c *Client) connectStreams(ctx context.Context, chans <-chan ssh.NewChannel) {
 	for ch := range chans {
+		reject := func(reason ssh.RejectionReason, err error) error {
+			c.Debugf("Sending SSH NewChannel rejection (reason=%v): %s", reason, err)
+			// TODO allow cancellation with ctx
+			rejectErr := ch.Reject(reason, err.Error())
+			if rejectErr != nil {
+				c.Debugf("Unable to send SSH NewChannel reject response, ignoring: %s", rejectErr)
+			}
+			return err
+		}
+
 		epdJSON := ch.ExtraData()
-		var epd ChannelEndpointDescriptor
+		epd := &ChannelEndpointDescriptor{}
 		err := json.Unmarshal(epdJSON, &epd)
 		if err != nil {
-			c.Debugf("Error: Remote channel connect request: bad JSON parameter string: '%s'", epdJSON)
-			ch.Reject(ssh.UnknownChannelType, "Bad JSON ExtraData")
+			reject(ssh.UnknownChannelType, c.Errorf("Bad JSON ExtraData"))
 			continue
 		}
+
+		// TODO: **MUST** implement access control (whitelist originally configured reverse-proxy skeletons)
+
 		c.Debugf("Remote channel connect request, endpoint ='%s'", epd.LongString())
 		if epd.Role != ChannelEndpointRoleSkeleton {
-			c.Debugf("Error: Remote channel connect request: Role must be skeleton: '%s'", epd.LongString())
-			ch.Reject(ssh.Prohibited, "Endpoint role must be skeleton")
+			reject(ssh.Prohibited, c.Errorf("Endpoint role must be skeleton"))
 			continue
 		}
-		if epd.Type == ChannelEndpointTypeStdio {
-			c.Debugf("Error: Remote channel connect request: Client-side skeleton STDIO not yet supported: '%s'", epd.LongString())
-			ch.Reject(ssh.Prohibited, "Client-side skeleton STDIO not yet supported")
-			continue
-		}
-		if epd.Type == ChannelEndpointTypeLoop {
-			c.Debugf("Error: Remote channel connect request: Loop channels not yet not supported: '%s'", epd.LongString())
-			ch.Reject(ssh.Prohibited, "Loop channels not yet supported")
-			continue
-		}
-		if epd.Type == ChannelEndpointTypeUnix {
-			c.Debugf("Error: Remote channel connect request: Unix domain sockets not yet not supported: '%s'", epd.LongString())
-			ch.Reject(ssh.Prohibited, "Unix domain sockets not yet supported")
-			continue
-		}
-		if epd.Type == ChannelEndpointTypeSocks {
-			c.Debugf("Error: Remote channel connect request: client-side SOCKS endpoint not yet not supported: '%s'", epd.LongString())
-			ch.Reject(ssh.Prohibited, "Client-side SOCKS endpoint not yet supported")
+
+		ep, err := NewLocalSkeletonChannelEndpoint(c.Logger, c, epd)
+		if err != nil {
+			reject(ssh.Prohibited, c.Errorf("Failed to create skeleton endpoint for SSH NewChannel: %s", err))
 			continue
 		}
 
 		// TODO: The actual local connect request should succeed before we accept the remote request.
 		//       Need to refactor code here
-		stream, reqs, err := ch.Accept()
+		sshChannel, reqs, err := ch.Accept()
 		if err != nil {
-			c.Debugf("Failed to accept remote stream: %s", err)
+			c.Debugf("Failed to accept remote SSH Channel: %s", err)
 			continue
 		}
+
+		// will shutdown when sshChannel is closed
 		go ssh.DiscardRequests(reqs)
-		//handle stream type
-		l := c.Logger.Fork("conn#%d", c.connStats.New())
-		go HandleTCPStream(l, &c.connStats, stream, epd.Path)
+
+		// wrap the ssh.Channel to look like a ChannelConn
+		sshConn, err := NewSSHConn(c.Logger, sshChannel)
+		if err != nil {
+			c.Debugf("Failed to wrap SSH Channel: %s", err)
+			sshChannel.Close()
+			ep.Close()
+			continue
+		}
+
+		// sshChannel is now wrapped by sshConn, and will be closed when sshConn is closed
+
+		var extraData []byte
+		numSent, numReceived, err := ep.DialAndServe(ctx, sshConn, extraData)
+
+		// sshConn and sshChannel have now been closed
+
+		if err != nil {
+			c.Debugf("NewChannel session ended with error after %d bytes (caller->called), %d bytes (called->caller): %s", numSent, numReceived, err)
+		} else {
+			c.Debugf("NewChannel session ended normally after %d bytes (caller->called), %d bytes (called->caller)", numSent, numReceived)
+		}
 	}
 }

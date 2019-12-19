@@ -28,16 +28,14 @@ func NewSocketConn(logger *Logger, netConn net.Conn) (*SocketConn, error) {
 // a request until end-of-stream before sending a response. Part of the ChannelConn interface
 func (c *SocketConn) CloseWrite() error {
 	var err error
-	switch nc := c.netConn.(type) {
-	case *net.UnixConn:
-		err = nc.CloseWrite()
-	case *net.TCPConn:
-		err = nc.CloseWrite()
-	default:
-		err = fmt.Errorf("CloseWrite() called on unknown net.Conn type %T", nc)
-	}
-	if err != nil {
-		err = fmt.Errorf("%s: %s", c.Logger.Prefix(), err)
+	whc, _ := c.netConn.(WriteHalfCloser)
+	if whc != nil {
+		err = whc.CloseWrite()
+		if err != nil {
+			err = c.Errorf("CloseWrite falied: %s", err)
+		}
+	} else {
+		c.Debugf("CloseWrite() ignored--not implemented by net.Conn implementer")
 	}
 	return err
 }

@@ -5,11 +5,6 @@ import (
 	"sync"
 )
 
-type closeWriteSupporter interface {
-	CloseWrite() error
-}
-
-
 // Pipe concurrently copies in both directions betweeen two socket-like
 // objects, returning after all data has been copied and both src
 // and dst have been closed.
@@ -19,17 +14,17 @@ func Pipe(src io.ReadWriteCloser, dst io.ReadWriteCloser) (int64, int64) {
 	wg.Add(2)
 	go func() {
 		received, _ = io.Copy(src, dst)
-		cwdst, _ := dst.(closeWriteSupporter)
-		if cwdst != nil {
-			cwdst.CloseWrite()
+		whc, _ := dst.(WriteHalfCloser)
+		if whc != nil {
+			whc.CloseWrite()
 		}
 		wg.Done()
 	}()
 	go func() {
 		sent, _ = io.Copy(dst, src)
-		cwdst, _ := dst.(closeWriteSupporter)
-		if cwdst != nil {
-			cwdst.CloseWrite()
+		whc, _ := dst.(WriteHalfCloser)
+		if whc != nil {
+			whc.CloseWrite()
 		}
 		wg.Done()
 	}()
