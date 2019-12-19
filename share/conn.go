@@ -1,6 +1,7 @@
 package chshare
 
 import (
+	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -30,10 +31,18 @@ type ChannelConn interface {
 	GetNumBytesWritten() int64
 }
 
+var nextBasicConnID int32
+
+// AllocBasicConnID allocates a unique ChannelConn ID number, for logging purposes
+func AllocBasicConnID() int32 {
+	return atomic.AddInt32(&nextBasicConnID, 1)
+}
+
 // BasicConn is a base common implementation for local ChannelConn
 type BasicConn struct {
 	ChannelConn
 	*Logger
+	id              int32
 	Lock            sync.Mutex
 	Done            chan struct{}
 	CloseOnce       sync.Once
@@ -50,4 +59,9 @@ func (c *BasicConn) GetNumBytesRead() int64 {
 // GetNumBytesWritten returns the number of bytes written so far on a ChannelConn
 func (c *BasicConn) GetNumBytesWritten() int64 {
 	return atomic.LoadInt64(&c.NumBytesWritten)
+}
+
+// GetNumBytesWritten returns the number of bytes written so far on a ChannelConn
+func (c *BasicConn) String() string {
+	return fmt.Sprintf("ChannelConn#%d", c.id)
 }

@@ -2,7 +2,6 @@ package chshare
 
 import (
 	"context"
-	"fmt"
 	"net"
 )
 
@@ -40,10 +39,11 @@ func (ep *TCPSkeletonEndpoint) Close() error {
 // Dial initiates a new connection to a Called Service. Part of the
 // DialerChannelEndpoint interface
 func (ep *TCPSkeletonEndpoint) Dial(ctx context.Context, extraData []byte) (ChannelConn, error) {
+	ep.Debugf("Dialing local TCP service at %s", ep.ced.Path)
 	var err error
 	ep.lock.Lock()
 	if ep.closed {
-		err = fmt.Errorf("%s: Endpoint is closed", ep.Logger.Prefix())
+		err = ep.Errorf("Endpoint is closed: %s", ep.String())
 	}
 	ep.lock.Unlock()
 	if err != nil {
@@ -53,13 +53,14 @@ func (ep *TCPSkeletonEndpoint) Dial(ctx context.Context, extraData []byte) (Chan
 	var d net.Dialer
 	netConn, err := d.DialContext(ctx, "tcp", ep.ced.Path)
 	if err != nil {
-		return nil, fmt.Errorf("%s: DialContext failed: %s", ep.Logger.Prefix(), err)
+		return nil, ep.Errorf("DialContext failed: %s", err)
 	}
 
 	conn, err := NewSocketConn(ep.Logger, netConn)
 	if err != nil {
-		return nil, fmt.Errorf("%s: Unable to create SocketConn: %s", ep.Logger.Prefix(), err)
+		return nil, ep.Errorf("Unable to create SocketConn: %s", err)
 	}
+	ep.Debugf("Connected to local TCP service %s", ep.String())
 	return conn, nil
 }
 
@@ -88,5 +89,5 @@ func (ep *TCPSkeletonEndpoint) DialAndServe(
 		callerConn.Close()
 		return 0, 0, err
 	}
-	return BasicBridgeChannels(ctx, callerConn, calledServiceConn)
+	return BasicBridgeChannels(ctx, ep.Logger, callerConn, calledServiceConn)
 }

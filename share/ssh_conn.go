@@ -17,9 +17,11 @@ type SSHConn struct {
 
 // NewSSHConn creates a new SSHConn
 func NewSSHConn(logger *Logger, rawSSHConn ssh.Channel) (*SSHConn, error) {
+	id := AllocBasicConnID()
 	c := &SSHConn{
 		BasicConn: BasicConn{
-			Logger: logger.Fork("SSHConn: %s", rawSSHConn),
+			Logger: logger.Fork("SSHConn#%d", id),
+			id:     id,
 			Done:   make(chan struct{}),
 		},
 		rawSSHConn: rawSSHConn,
@@ -28,7 +30,7 @@ func NewSSHConn(logger *Logger, rawSSHConn ssh.Channel) (*SSHConn, error) {
 }
 
 func (c *SSHConn) String() string {
-	return c.Logger.Prefix()
+	return fmt.Sprintf("SSHConn#%d()", c.id)
 }
 
 // CloseWrite shuts down the writing side of the "socket". Corresponds to net.TCPConn.CloseWrite().
@@ -52,7 +54,7 @@ func (c *SSHConn) Close() error {
 			err = fmt.Errorf("%s: %s", c.Logger.Prefix(), err)
 		}
 		c.CloseErr = err
-		c.Done <- struct{}{}
+		close(c.Done)
 	})
 
 	<-c.Done

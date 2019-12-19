@@ -127,5 +127,5 @@ func (ep *TCPStubEndpoint) AcceptAndServe(ctx context.Context, calledServiceConn
 		calledServiceConn.Close()
 		return 0, 0, err
 	}
-	return BasicBridgeChannels(ctx, callerConn, calledServiceConn)
+	return BasicBridgeChannels(ctx, ep.Logger, callerConn, calledServiceConn)
 }

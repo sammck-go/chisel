@@ -80,10 +80,10 @@ type ServerSSHSession struct {
 	sshConn *ssh.ServerConn
 
 	// chans is the chan on which connect requests from remote stub to local endpoint are eceived
-	chans chan ssh.NewChannel
+	chans <-chan ssh.NewChannel
 
 	// reqs is the chan on which ssh requests are received (including initial config request)
-	reqs chan *ssh.Request
+	reqs <-chan *ssh.Request
 
 	// done is closed at completion of Run
 	done chan struct{}
@@ -187,6 +187,10 @@ func (s *ServerSSHSession) runWithSSHConn(
 	subCtx, subCtxCancel := context.WithCancel(ctx)
 	defer subCtxCancel()
 
+	s.sshConn = sshConn
+	s.chans = s.chans
+	s.reqs = reqs
+
 	// pull the users from the session map
 	var user *chshare.User
 	if s.server.users.Len() > 0 {
@@ -196,14 +200,16 @@ func (s *ServerSSHSession) runWithSSHConn(
 	}
 
 	//verify configuration
-	s.Debugf("Verifying configuration")
+	s.Debugf("Receiving configuration")
 	// wait for configuration request, with timeout
 	cfgCtx, cfgCtxCancel := context.WithTimeout(subCtx, 10*time.Second)
 	r, err := s.receiveSSHRequest(cfgCtx)
 	cfgCtxCancel()
 	if err != nil {
-		err = s.DebugErrorf("SSH config failed: %s", err)
+		return s.DebugErrorf("receiveSSHRequest failed: %s", err)
 	}
+
+	s.Debugf("Received SSH Req")
 
 	// convenience function to send an error reply and return
 	// the original error. Ignores failures sending the reply
@@ -252,13 +258,13 @@ func (s *ServerSSHSession) runWithSSHConn(
 	//set up reverse port forwarding
 	for i, chd := range c.ChannelDescriptors {
 		if chd.Reverse {
-			s.Debugf("Starting reverse channel stub listener %s", chd.LongString())
+			s.Debugf("Reverse-mode route[%d] %s; starting stub listener", i, chd.String())
 			proxy := chshare.NewTCPProxy(s.Logger, func() ssh.Conn { return sshConn }, i, chd)
 			if err := proxy.Start(subCtx); err != nil {
-				return failed(s.DebugErrorf("Unable to start stub listener %s: %s", chd.LongString(), err))
+				return failed(s.DebugErrorf("Unable to start stub listener %s: %s", chd.String(), err))
 			}
 		} else {
-			s.Debugf("Forward-mode channel %s; connections will be created on demand", chd.LongString())
+			s.Debugf("Forward-mode route[%d] %s; connections will be created on demand", i, chd.String())
 		}
 	}
 
@@ -325,7 +331,7 @@ func (s *ServerSSHSession) handleSSHRequests(ctx context.Context, reqs <-chan *s
 		case req := <-reqs:
 			if req == nil {
 				s.Debugf("End of incoming SSH request stream")
-				break
+				return
 			} else {
 				switch req.Type {
 				case "ping":
@@ -343,7 +349,7 @@ func (s *ServerSSHSession) handleSSHRequests(ctx context.Context, reqs <-chan *s
 			}
 		case <-ctx.Done():
 			s.Debugf("SSH request stream processing aborted: %s", ctx.Err())
-			break
+			return
 		}
 	}
 }
@@ -367,7 +373,7 @@ func (s *ServerSSHSession) handleSSHNewChannel(ctx context.Context, ch ssh.NewCh
 	if err != nil {
 		return reject(ssh.UnknownChannelType, s.server.Errorf("Badly formatted NewChannel request"))
 	}
-	s.Debugf("SSH NewChannel request, endpoint ='%s'", epd.LongString())
+	s.Debugf("SSH NewChannel request, endpoint ='%s'", epd.String())
 	ep, err := chshare.NewLocalSkeletonChannelEndpoint(s.Logger, s, epd)
 	if err != nil {
 		s.Debugf("Failed to create skeleton endpoint for SSH NewChannel: %s", err)
@@ -418,13 +424,13 @@ func (s *ServerSSHSession) handleSSHChannels(ctx context.Context, newChannels <-
 		case ch := <-newChannels:
 			if ch == nil {
 				s.Debugf("End of incoming SSH NewChannels stream")
-				break
+				return
 			} else {
 				go s.handleSSHNewChannel(ctx, ch)
 			}
 		case <-ctx.Done():
 			s.Debugf("SSH NewChannels stream processing aborted: %s", ctx.Err())
-			break
+			return
 		}
 	}
 }

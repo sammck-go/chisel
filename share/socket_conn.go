@@ -14,9 +14,11 @@ type SocketConn struct {
 
 // NewSocketConn creates a new SocketConn
 func NewSocketConn(logger *Logger, netConn net.Conn) (*SocketConn, error) {
+	id := AllocBasicConnID()
 	c := &SocketConn{
 		BasicConn: BasicConn{
-			Logger: logger.Fork("SocketConn: %s", netConn),
+			Logger: logger.Fork("SocketConn#%d(%s)", id, netConn.RemoteAddr()),
+			id:     id,
 			Done:   make(chan struct{}),
 		},
 		netConn: netConn,
@@ -57,7 +59,7 @@ func (c *SocketConn) Close() error {
 			err = fmt.Errorf("%s: %s", c.Logger.Prefix(), err)
 		}
 		c.CloseErr = err
-		c.Done <- struct{}{}
+		close(c.Done)
 	})
 
 	<-c.Done

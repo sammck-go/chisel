@@ -123,7 +123,7 @@ func (ep *LoopStubEndpoint) AcceptAndServe(ctx context.Context, calledServiceCon
 		calledServiceConn.Close()
 		return 0, 0, err
 	}
-	return BasicBridgeChannels(ctx, callerConn, calledServiceConn)
+	return BasicBridgeChannels(ctx, ep.Logger, callerConn, calledServiceConn)
 }
 
 // EnqueueCallerConn provides a ChannelConn to be returned by a future or pending Accept call

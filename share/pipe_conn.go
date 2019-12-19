@@ -21,6 +21,7 @@ func NewPipeConn(logger *Logger, input io.ReadCloser, output io.WriteCloser) (*P
 	c := &PipeConn{
 		BasicConn: BasicConn{
 			Logger: logger.Fork("PipeConn: (%s->%s)", input, output),
+			id:     AllocBasicConnID(),
 			Done:   make(chan struct{}),
 		},
 		input:  input,
@@ -55,7 +56,7 @@ func (c *PipeConn) Close() error {
 			err = fmt.Errorf("%s: %s", c.Logger.Prefix(), err)
 		}
 		c.CloseErr = err
-		c.Done <- struct{}{}
+		close(c.Done)
 	})
 
 	<-c.Done

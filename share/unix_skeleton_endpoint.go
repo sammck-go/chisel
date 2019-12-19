@@ -88,5 +88,5 @@ func (ep *UnixSkeletonEndpoint) DialAndServe(
 		callerConn.Close()
 		return 0, 0, err
 	}
-	return BasicBridgeChannels(ctx, callerConn, calledServiceConn)
+	return BasicBridgeChannels(ctx, ep.Logger, callerConn, calledServiceConn)
 }

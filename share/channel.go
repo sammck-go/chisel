@@ -2,10 +2,12 @@ package chshare
 
 import (
 	"context"
-	socks5 "github.com/armon/go-socks5"
-	"golang.org/x/crypto/ssh"
 	"io"
 	"sync"
+	"sync/atomic"
+
+	socks5 "github.com/armon/go-socks5"
+	"golang.org/x/crypto/ssh"
 )
 
 // To distinguish between the various entities in a tunneled
@@ -126,6 +128,8 @@ import (
 //                           +-----------------------------+             +--------------------------------+
 //
 
+var lastBasicBridgeNum int64 = 0
+
 // BasicBridgeChannels connects two ChannelConn's together, copying betweeen them bi-directionally
 // until end-of-stream is reached in both directions. Both channels are closed before this function
 // returns. Three values are returned:
@@ -139,9 +143,13 @@ import (
 // one of the ChannelConn's.
 func BasicBridgeChannels(
 	ctx context.Context,
+	logger *Logger,
 	caller ChannelConn,
 	calledService ChannelConn,
 ) (int64, int64, error) {
+	bridgeNum := atomic.AddInt64(&lastBasicBridgeNum, 1)
+	logger = logger.Fork("BasicBridge#%d (%s->%s)", bridgeNum, caller, calledService)
+	logger.Debugf("Starting")
 	var callerToServiceBytes, serviceToCallerBytes int64
 	var callerToServiceErr, serviceToCallerErr error
 	var wg sync.WaitGroup
@@ -149,18 +157,29 @@ func BasicBridgeChannels(
 	copyFunc := func(src ChannelConn, dst ChannelConn, bytesCopied *int64, copyErr *error) {
 		// Copy from caller to calledService
 		*bytesCopied, *copyErr = io.Copy(dst, src)
+		if *copyErr != nil {
+			logger.Debugf("io.Copy(%s->%s) returned error: %s", src, dst, *copyErr)
+		}
+		logger.Debugf("Done with io.Copy(%s->%s); shutting down write side", src, dst)
 		dst.CloseWrite()
+		logger.Debugf("Done with write side shutdown of %s->%s", src, dst)
 		wg.Done()
 	}
 	go copyFunc(caller, calledService, &callerToServiceBytes, &callerToServiceErr)
 	go copyFunc(calledService, caller, &serviceToCallerBytes, &serviceToCallerErr)
 	wg.Wait()
+	logger.Debugf("Wait complete")
+	logger.Debugf("callerToService=%d, err=%s", callerToServiceBytes, callerToServiceErr)
+	logger.Debugf("serviceToCaller=%d, err=%s", serviceToCallerBytes, serviceToCallerErr)
+	logger.Debugf("Closing calledService")
 	calledService.Close()
+	logger.Debugf("Closing caller")
 	caller.Close()
 	err := callerToServiceErr
 	if err == nil {
 		err = serviceToCallerErr
 	}
+	logger.Debugf("Exiting, callerToService=%d, serviceToCaller=%d, err=%s", callerToServiceBytes, serviceToCallerBytes, err)
 	return callerToServiceBytes, serviceToCallerBytes, err
 }
 
