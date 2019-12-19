@@ -1,7 +1,7 @@
 package chshare
 
 import (
-	"errors"
+	"context"
 	"net"
 	"net/http"
 	"sync"
@@ -10,57 +10,96 @@ import (
 //HTTPServer extends net/http Server and
 //adds graceful shutdowns
 type HTTPServer struct {
+	*Logger
 	*http.Server
 	listener  net.Listener
-	running   chan error
-	isRunning bool
-	closer    sync.Once
+	done      chan struct{}
+	doneErr   error
+	isStarted bool
+	isShuttingDown bool
+	stopper    sync.Once
 }
 
 //NewHTTPServer creates a new HTTPServer
-func NewHTTPServer() *HTTPServer {
+func NewHTTPServer(logger *Logger) *HTTPServer {
 	return &HTTPServer{
+		Logger: logger.Fork("HTTPServer"),
 		Server:   &http.Server{},
 		listener: nil,
-		running:  make(chan error, 1),
+		done:  make(chan struct{}),
 	}
 }
 
-// GoListenAndServe starts an HTTP server running in the background
+// ListenAndServe Runs the HTTP server running in the background
 // on the given bind address, invoking the provided handler for each
-// request.
-func (h *HTTPServer) GoListenAndServe(addr string, handler http.Handler) error {
+// request. It returns after the server has shutdown. The server can be
+// shutdown either by cancelling the context or by calling shutdownWith().
+func (h *HTTPServer) ListenAndServe(ctx context.Context, addr string, handler http.Handler) error {
+	if h.isStarted {
+		return h.DebugErrorf("HTTP server has already been started")
+	}
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
-	h.isRunning = true
 	h.Handler = handler
 	h.listener = l
+	h.isStarted = true
 	go func() {
-		h.closeWith(h.Serve(l))
+		h.ShutdownWith(h.Serve(l))
 	}()
-	return nil
+	go func() {
+		select{
+			case <-ctx.Done():
+				h.ShutdownWith(ctx.Err())
+			case <-h.done:
+		}
+	}()
+	return h.Wait()
 }
 
-func (h *HTTPServer) closeWith(err error) {
-	if !h.isRunning {
-		return
-	}
-	h.isRunning = false
-	h.running <- err
+// ShutdownWith begins asynchronous shutdown of the server, with
+// a preferred exit code. If shutdown has already begun, has no effect.
+// Shutdown is complete when Wait() returns.
+func (h *HTTPServer) ShutdownWith(err error) {
+	h.stopper.Do(func(){
+		go func(){
+			h.isShuttingDown = true
+			if h.isStarted {
+				lerr := h.listener.Close()
+				if lerr != nil {
+					h.Debugf("HTTPserver: close of listener failed, ignoring: %s", lerr)
+				}
+			} else {
+				h.isStarted = true
+			}
+			h.doneErr = err
+			close(h.done)
+		}()
+	})
 }
 
-// Close closes the HTTPServer and stops it from listening
+// Shutdown begins normal asynchronous shutdown of the server.
+// If shutdown has already begun, has no effect.
+// Shutdown is complete when Wait() returns.
+func(h *HTTPServer) Shutdown() {
+	h.ShutdownWith(nil)
+}
+
+// Close closes the HTTPServer and stops it from listening. Does not return until
+// resources are freed.
 func (h *HTTPServer) Close() error {
-	h.closeWith(nil)
-	return h.listener.Close()
+	h.Shutdown()
+	return h.Wait()
 }
 
-// Wait waits for an HTTPServer to fully shut down
+// DoneChan returns a channel that is closed after the server has completely shut down
+func (h *HTTPServer) DoneChan() chan struct{} {
+	return h.done
+}
+
+// Wait waits for an HTTPServer to fully shut down. Returns final completion status.
 func (h *HTTPServer) Wait() error {
-	if !h.isRunning {
-		return errors.New("Already closed")
-	}
-	return <-h.running
+	<-h.done
+	return h.doneErr
 }

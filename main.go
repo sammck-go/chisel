@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -28,7 +29,8 @@ var help = `
 `
 
 func main() {
-
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	defer ctxCancel()
 	version := flag.Bool("version", false, "")
 	v := flag.Bool("v", false, "")
 	flag.Bool("help", false, "")
@@ -51,9 +53,9 @@ func main() {
 
 	switch subcmd {
 	case "server":
-		server(args)
+		server(ctx, args)
 	case "client":
-		client(args)
+		client(ctx, args)
 	default:
 		fmt.Fprintf(os.Stderr, help)
 		os.Exit(1)
@@ -134,7 +136,7 @@ var serverHelp = `
     in addition to normal remotes.
 ` + commonHelp
 
-func server(args []string) {
+func server(ctx context.Context, args []string) {
 
 	flags := flag.NewFlagSet("server", flag.ContinueOnError)
 
@@ -192,7 +194,7 @@ func server(args []string) {
 		generatePidFile()
 	}
 	go chshare.GoStats()
-	if err = s.Run(*host, *port); err != nil {
+	if err = s.Run(ctx, *host, *port); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -273,7 +275,7 @@ var clientHelp = `
     found in the server url).
 ` + commonHelp
 
-func client(args []string) {
+func client(ctx context.Context, args []string) {
 
 	flags := flag.NewFlagSet("client", flag.ContinueOnError)
 

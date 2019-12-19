@@ -1,22 +1,21 @@
 package chserver
 
 import (
+	chshare "github.com/XevoInc/chisel/share"
+	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
-	"log"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
+	"io/ioutil"
+	"log"
 	"os"
 	"regexp"
-
-	socks5 "github.com/armon/go-socks5"
-	"github.com/gorilla/websocket"
 	"github.com/jpillora/requestlog"
+	socks5 "github.com/armon/go-socks5"
 	"golang.org/x/crypto/ssh"
-
-	chshare "github.com/XevoInc/chisel/share"
+	"net/url"
+	"github.com/gorilla/websocket"
 )
 
 // Config is the configuration for the chisel service
@@ -55,9 +54,10 @@ var upgrader = websocket.Upgrader{
 
 // NewServer creates and returns a new chisel server
 func NewServer(config *Config) (*Server, error) {
+	logger := chshare.NewLogger("server")
 	s := &Server{
-		httpServer: chshare.NewHTTPServer(),
-		Logger:     chshare.NewLogger("server"),
+		httpServer: chshare.NewHTTPServer(logger),
+		Logger:     logger,
 		sessions:   chshare.NewUsers(),
 		reverseOk:  config.Reverse,
 	}
@@ -140,29 +140,28 @@ func NewServer(config *Config) (*Server, error) {
 }
 
 // Run is responsible for starting the chisel service
-func (s *Server) Run(host, port string) error {
-	if err := s.Start(host, port); err != nil {
-		return err
-	}
-
-	return s.Wait()
-}
-
-// Start is responsible for kicking off the http server
-func (s *Server) Start(host, port string) error {
+func (s *Server) Run(ctx context.Context, host, port string) error {
 	s.Infof("Fingerprint %s", s.fingerprint)
+
 	if s.users.Len() > 0 {
 		s.Infof("User authenication enabled")
 	}
+
 	if s.reverseProxy != nil {
 		s.Infof("Reverse proxy enabled")
 	}
+
 	s.Infof("Listening on %s:%s...", host, port)
-	h := http.Handler(http.HandlerFunc(s.handleClientHandler))
+
+	h := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request){
+			s.handleClientHandler(ctx, w, r)
+	}))
+
 	if s.Debug {
 		h = requestlog.Wrap(h)
 	}
-	return s.httpServer.GoListenAndServe(host+":"+port, h)
+
+	return s.httpServer.ListenAndServe(ctx, host+":"+port, h)
 }
 
 // Wait waits for the http server to close

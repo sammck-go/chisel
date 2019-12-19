@@ -1,6 +1,7 @@
 package chshare
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -35,21 +36,48 @@ func NewLoggerFlag(prefix string, flag int) *Logger {
 // Infof outputs to a Logger iff INFO logging level is enabled
 func (l *Logger) Infof(f string, args ...interface{}) {
 	if l.Info {
-		l.logger.Printf(l.prefix+": "+f, args...)
+		l.logger.Print(l.Sprintf(f, args...))
 	}
 }
 
 // Debugf outputs to a Logger iff DEBUG logging level is enabled
 func (l *Logger) Debugf(f string, args ...interface{}) {
 	if l.Debug {
-		l.logger.Printf(l.prefix+": "+f, args...)
+		l.logger.Printf(l.Sprintf(f, args...))
 	}
 }
 
 // Errorf returns an error object with a description string that has the
 // Logger's prefix
 func (l *Logger) Errorf(f string, args ...interface{}) error {
-	return fmt.Errorf(l.prefix+": "+f, args...)
+	return errors.New(l.Sprintf(f, args...))
+}
+
+// Sprintf returns a string that has the Logger's prefix
+func (l *Logger) Sprintf(f string, args ...interface{}) string {
+	return l.prefix + ": " + fmt.Sprintf(f, args...)
+}
+
+// DebugErrorf outputs an error message to a Logger iff DEBUG logging level is enabled,
+// and returns an error object with a description string that has the
+// logger's prefix
+func (l *Logger) DebugErrorf(f string, args ...interface{}) error {
+	s := l.Sprintf(f, args...)
+	if l.Debug {
+		l.logger.Print(s)
+	}
+	return errors.New(s)
+}
+
+// InfoErrorf outputs an error message to a Logger iff ERROR logging level is enabled,
+// and returns an error object with a description string that has the
+// logger's prefix
+func (l *Logger) InfoErrorf(f string, args ...interface{}) error {
+	s := l.Sprintf(f, args...)
+	if l.Info {
+		l.logger.Print("Error: " + s)
+	}
+	return errors.New(s)
 }
 
 // Fork creates a new Logger that has an additional formatted string appended onto
