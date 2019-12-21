@@ -4,12 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	chshare "github.com/XevoInc/chisel/share"
 	"io/ioutil"
 	"log"
 	"os"
+	"os/signal"
 	"strconv"
-
-	chshare "github.com/XevoInc/chisel/share"
+	"syscall"
 )
 
 var help = `
@@ -25,6 +26,20 @@ var help = `
     https://github.com/XevoInc/chisel
 
 `
+
+func sigIntHandler(ctx context.Context, cancel context.CancelFunc) {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT)
+	for {
+		select {
+		case <-sig:
+			log.Printf("SIGINT received; cancelling main ctx")
+		case <-ctx.Done():
+		}
+		signal.Stop(sig)
+		cancel()
+	}
+}
 
 func main() {
 	ctx, ctxCancel := context.WithCancel(context.Background())
@@ -51,13 +66,18 @@ func main() {
 
 	switch subcmd {
 	case "server":
+		go sigIntHandler(ctx, ctxCancel)
 		server(ctx, args)
+		log.Printf("Exiting proxy server")
 	case "client":
+		go sigIntHandler(ctx, ctxCancel)
 		client(ctx, args)
+		log.Printf("Exiting proxy client")
 	default:
 		fmt.Fprintf(os.Stderr, help)
 		os.Exit(1)
 	}
+
 }
 
 var commonHelp = `
@@ -193,7 +213,7 @@ func server(ctx context.Context, args []string) {
 	}
 	go chshare.GoStats()
 	if err = s.Run(ctx, *host, *port); err != nil {
-		log.Fatal(err)
+		log.Printf("Proxy server exited with: %s", err)
 	}
 }
 

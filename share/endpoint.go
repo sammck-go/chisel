@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"sync"
 )
 
 // ChannelEndpoint is a virtual network endpoint service of any type and role. Stub endpoints
@@ -90,10 +89,24 @@ type LocalSkeletonChannelEndpoint interface {
 
 // BasicEndpoint is a base common implementation for local ChannelEndPoints
 type BasicEndpoint struct {
-	*Logger
-	lock   sync.Mutex
-	ced    *ChannelEndpointDescriptor
-	closed bool
+	ShutdownHelper
+	Strname         string
+	ced             *ChannelEndpointDescriptor
+}
+
+// InitBasicEndpoint initializes a BasicEndpoint
+func(ep *BasicEndpoint) InitBasicEndpoint(
+		logger *Logger,
+		shutdownHandler OnceShutdownHandler,
+		namef string,
+		args ...interface{},
+) {
+	ep.Strname = fmt.Sprintf(namef, args...)
+	ep.InitShutdownHelper(logger.Fork("%s", ep.Strname), shutdownHandler)
+}
+
+func(ep *BasicEndpoint) String() string {
+	return ep.Strname
 }
 
 // NewLocalStubChannelEndpoint creates a LocalStubChannelEndpoint from its descriptor

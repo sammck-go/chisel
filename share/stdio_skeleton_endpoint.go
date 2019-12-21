@@ -2,7 +2,6 @@ package chshare
 
 import (
 	"context"
-	"fmt"
 	"os"
 )
 
@@ -18,29 +17,29 @@ func NewStdioSkeletonEndpoint(
 	logger *Logger,
 	ced *ChannelEndpointDescriptor,
 ) (*StdioSkeletonEndpoint, error) {
-	myLogger := logger.Fork("StdioSkeletonEndpoint")
-	pipeConn, err := NewPipeConn(myLogger, os.Stdin, os.Stdout)
-	if err != nil {
-		return nil, fmt.Errorf("%s: Failed to create stdio PipeConn: %s", myLogger.Prefix(), err)
-	}
 	ep := &StdioSkeletonEndpoint{
 		BasicEndpoint: BasicEndpoint{
-			Logger: myLogger,
-			ced:    ced,
+			ced: ced,
 		},
-		pipeConn: pipeConn,
 	}
+	ep.InitBasicEndpoint(logger, ep, "StdioSkeletonEndpoint")
+	pipeConn, err := NewPipeConn(ep.Logger, os.Stdin, os.Stdout)
+	if err != nil {
+		return nil, ep.Errorf("Failed to create stdio PipeConn: %s", err)
+	}
+	ep.AddShutdownChild(pipeConn)
+	ep.pipeConn = pipeConn
 	return ep, nil
 }
 
-func (ep *StdioSkeletonEndpoint) String() string {
-	return ep.Logger.Prefix()
-}
-
-// Close implements the Closer interface
-func (ep *StdioSkeletonEndpoint) Close() error {
-	ep.pipeConn.Close()
-	return nil
+// HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
+// as an advisory completion value, actually shut down, then return the real completion value.
+func (ep *StdioSkeletonEndpoint) HandleOnceShutdown(completionErr error) error {
+	err := ep.pipeConn.Close()
+	if completionErr == nil {
+		completionErr = err
+	}
+	return completionErr
 }
 
 // Dial initiates a new connection to a Called Service. Part of the

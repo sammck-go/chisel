@@ -22,37 +22,24 @@ func NewSocksSkeletonEndpoint(
 ) (*SocksSkeletonEndpoint, error) {
 	ep := &SocksSkeletonEndpoint{
 		BasicEndpoint: BasicEndpoint{
-			Logger: logger.Fork("SocksSkeletonEndpoint: %s", ced),
 			ced:    ced,
 		},
 	}
+	ep.InitBasicEndpoint(logger, ep, "SocksSkeletonEndpoint: %s", ced)
 	return ep, nil
 }
 
-func (ep *SocksSkeletonEndpoint) String() string {
-	return ep.Logger.Prefix()
-}
-
-// Close implements the Closer interface
-func (ep *SocksSkeletonEndpoint) Close() error {
-	ep.lock.Lock()
-	if !ep.closed {
-		ep.closed = true
-	}
-	ep.lock.Unlock()
-	return nil
+// HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
+// as an advisory completion value, actually shut down, then return the real completion value.
+func (ep *SocksSkeletonEndpoint) HandleOnceShutdown(completionErr error) error {
+	return completionErr
 }
 
 // Dial initiates a new connection to a Called Service. Part of the
 // DialerChannelEndpoint interface
 func (ep *SocksSkeletonEndpoint) Dial(ctx context.Context, extraData []byte) (ChannelConn, error) {
-	var err error
-	ep.lock.Lock()
-	if ep.closed {
-		err = fmt.Errorf("%s: Endpoint is closed", ep.Logger.Prefix())
-	}
-	ep.lock.Unlock()
-	if err != nil {
+	if ep.IsStartedShutdown() {
+		err := ep.Errorf("Endpoint is closed: %s", ep.String())
 		return nil, err
 	}
 

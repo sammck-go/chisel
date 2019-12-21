@@ -18,49 +18,45 @@ type UnixStubEndpoint struct {
 func NewUnixStubEndpoint(logger *Logger, ced *ChannelEndpointDescriptor) (*UnixStubEndpoint, error) {
 	ep := &UnixStubEndpoint{
 		BasicEndpoint: BasicEndpoint{
-			Logger: logger.Fork("UnixStubEndpoint: %s", ced),
 			ced:    ced,
 		},
 	}
+	ep.InitBasicEndpoint(logger, ep, "UnixStubEndpoint: %s", ced)
 	return ep, nil
 }
 
-func (ep *UnixStubEndpoint) String() string {
-	return ep.Logger.Prefix()
-}
-
-// Close implements the Closer interface
-func (ep *UnixStubEndpoint) Close() error {
-	// TODO: better synchronization
+// HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
+// as an advisory completion value, actually shut down, then return the real completion value.
+func (ep *UnixStubEndpoint) HandleOnceShutdown(completionErr error) error {
 	var listener net.Listener
-	ep.lock.Lock()
-	if !ep.closed {
-		listener = ep.listener
-		ep.listener = nil
-		ep.closed = true
-	}
-	ep.lock.Unlock()
+	ep.Lock.Lock()
+	listener = ep.listener
+	ep.listener = nil
+	ep.Lock.Unlock()
 
 	var err error
 	if listener != nil {
 		err = listener.Close()
 	}
-	return err
+
+	if completionErr == nil {
+		completionErr = err
+	}
+	return completionErr
 }
 
 func (ep *UnixStubEndpoint) getListener() (net.Listener, error) {
 	var listener net.Listener
 	var err error
 
-	ep.lock.Lock()
+	ep.Lock.Lock()
 	{
-		if ep.closed {
+		if ep.IsStartedShutdown() {
 			err = fmt.Errorf("%s: Endpoint is closed", ep.Logger.Prefix())
 		} else if ep.listener == nil && ep.listenErr == nil {
-			// TODO: support IPV6
-			listener, err = net.Listen("unix", ep.ced.Path)
+			listener, err := NewLockedUnixSocketListener(ep.Logger, ep.ced.Path)
 			if err != nil {
-				err = fmt.Errorf("%s: Unix domain socket listen failed for path '%s': %s", ep.Logger.Prefix(), ep.ced.Path, err)
+				err = ep.Errorf("Listen failed for path '%s': %s", ep.ced.Path, err)
 			} else {
 				ep.listener = listener
 			}
@@ -70,7 +66,7 @@ func (ep *UnixStubEndpoint) getListener() (net.Listener, error) {
 			err = ep.listenErr
 		}
 	}
-	ep.lock.Unlock()
+	ep.Lock.Unlock()
 
 	return listener, err
 }

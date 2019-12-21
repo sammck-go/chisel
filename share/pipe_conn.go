@@ -1,7 +1,6 @@
 package chshare
 
 import (
-	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -22,12 +21,8 @@ func NewPipeConn(logger *Logger, input io.ReadCloser, output io.WriteCloser) (*P
 		input:  input,
 		output: output,
 	}
-	c.InitBasicConn(logger, "PipeConn(%s->%s)", input, output)
+	c.InitBasicConn(logger, c, "PipeConn(%s->%s)", input, output)
 	return c, nil
-}
-
-func (c *PipeConn) String() string {
-	return c.Logger.Prefix()
 }
 
 // CloseWrite shuts down the writing side of the "Pipe". Corresponds to net.TCPConn.CloseWrite().
@@ -42,27 +37,26 @@ func (c *PipeConn) CloseWrite() error {
 	return c.closeWriteErr
 }
 
-// Close implements the Closer interface
-func (c *PipeConn) Close() error {
-	c.CloseOnce.Do(func() {
-
-		// ignore errors on output close (may have been shutdown with CloseWrite())
-		err := c.input.Close()
-		if err != nil {
-			err = fmt.Errorf("%s: %s", c.Logger.Prefix(), err)
-		}
-		c.CloseErr = err
-		close(c.Done)
-	})
-
-	<-c.Done
-	return c.CloseErr
+// HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
+// as an advisory completion value, actually shut down, then return the real completion value.
+func (c *PipeConn) HandleOnceShutdown(completionErr error) error {
+	errW := c.CloseWrite()
+	err := c.input.Close()
+	if err == nil {
+		err = errW
+	}
+	if err != nil {
+		err = c.Errorf("%s", err)
+	}
+	if completionErr == nil {
+		completionErr = err
+	}
+	return completionErr
 }
 
 // WaitForClose blocks until the Close() method has been called and completed
 func (c *PipeConn) WaitForClose() error {
-	<-c.Done
-	return c.CloseErr
+	return c.WaitShutdown()
 }
 
 // Read implements the Reader interface

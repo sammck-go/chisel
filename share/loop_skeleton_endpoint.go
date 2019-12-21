@@ -2,7 +2,6 @@ package chshare
 
 import (
 	"context"
-	"fmt"
 )
 
 // LoopSkeletonEndpoint implements a local Loop skeleton
@@ -20,16 +19,12 @@ func NewLoopSkeletonEndpoint(
 ) (*LoopSkeletonEndpoint, error) {
 	ep := &LoopSkeletonEndpoint{
 		BasicEndpoint: BasicEndpoint{
-			Logger: logger.Fork("LoopSkeletonEndpoint: %s", ced),
 			ced:    ced,
 		},
 		loopServer: loopServer,
 	}
+	ep.InitBasicEndpoint(logger, ep, "LoopSkeletonEndpoint: %s", ced)
 	return ep, nil
-}
-
-func (ep *LoopSkeletonEndpoint) String() string {
-	return ep.Logger.Prefix()
 }
 
 // GetLoopPath returns the loop pathname associated with this LoopStubEndpoint
@@ -37,25 +32,17 @@ func (ep *LoopSkeletonEndpoint) GetLoopPath() string {
 	return ep.ced.Path
 }
 
-// Close implements the Closer interface
-func (ep *LoopSkeletonEndpoint) Close() error {
-	ep.lock.Lock()
-	defer ep.lock.Unlock()
-	ep.closed = true
-	return nil
+// HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
+// as an advisory completion value, actually shut down, then return the real completion value.
+func (ep *LoopSkeletonEndpoint) HandleOnceShutdown(completionErr error) error {
+	return completionErr
 }
 
 // Dial initiates a new connection to a Called Service. Part of the
 // DialerChannelEndpoint interface
 func (ep *LoopSkeletonEndpoint) Dial(ctx context.Context, extraData []byte) (ChannelConn, error) {
-	var err error
-	ep.lock.Lock()
-	if ep.closed {
-		err = fmt.Errorf("%s: Endpoint is closed", ep.Logger.Prefix())
-	}
-	ep.lock.Unlock()
-	if err != nil {
-		return nil, err
+	if ep.IsStartedShutdown() {
+		return nil, ep.Errorf("Endpoint is closed")
 	}
 	return ep.loopServer.Dial(ctx, ep.GetLoopPath(), extraData)
 }
@@ -80,14 +67,8 @@ func (ep *LoopSkeletonEndpoint) DialAndServe(
 	callerConn ChannelConn,
 	extraData []byte,
 ) (int64, int64, error) {
-	var err error
-	ep.lock.Lock()
-	if ep.closed {
-		err = fmt.Errorf("%s: Endpoint is closed", ep.Logger.Prefix())
-	}
-	ep.lock.Unlock()
-	if err != nil {
-		return 0, 0, err
+	if ep.IsStartedShutdown() {
+		return 0, 0, ep.Errorf("Endpoint is closed")
 	}
 	return ep.loopServer.DialAndServe(ctx, ep.GetLoopPath(), callerConn, extraData)
 }

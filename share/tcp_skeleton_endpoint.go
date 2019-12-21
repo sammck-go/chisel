@@ -15,40 +15,29 @@ type TCPSkeletonEndpoint struct {
 func NewTCPSkeletonEndpoint(logger *Logger, ced *ChannelEndpointDescriptor) (*TCPSkeletonEndpoint, error) {
 	ep := &TCPSkeletonEndpoint{
 		BasicEndpoint: BasicEndpoint{
-			Logger: logger.Fork("TCPSkeletonEndpoint: %s", ced),
 			ced:    ced,
 		},
 	}
+	ep.InitBasicEndpoint(logger, ep, "TCPSkeletonEndpoint: %s", ced)
 	return ep, nil
 }
 
-func (ep *TCPSkeletonEndpoint) String() string {
-	return ep.Logger.Prefix()
-}
-
-// Close implements the Closer interface
-func (ep *TCPSkeletonEndpoint) Close() error {
-	ep.lock.Lock()
-	if !ep.closed {
-		ep.closed = true
-	}
-	ep.lock.Unlock()
-	return nil
+// HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
+// as an advisory completion value, actually shut down, then return the real completion value.
+func (ep *TCPSkeletonEndpoint) HandleOnceShutdown(completionErr error) error {
+	return completionErr
 }
 
 // Dial initiates a new connection to a Called Service. Part of the
 // DialerChannelEndpoint interface
 func (ep *TCPSkeletonEndpoint) Dial(ctx context.Context, extraData []byte) (ChannelConn, error) {
 	ep.Debugf("Dialing local TCP service at %s", ep.ced.Path)
-	var err error
-	ep.lock.Lock()
-	if ep.closed {
-		err = ep.Errorf("Endpoint is closed: %s", ep.String())
-	}
-	ep.lock.Unlock()
-	if err != nil {
+	
+	if ep.IsStartedShutdown() {
+		err := ep.Errorf("Endpoint is closed: %s", ep.String())
 		return nil, err
 	}
+	
 	// TODO: make sure IPV6 works
 	var d net.Dialer
 	netConn, err := d.DialContext(ctx, "tcp", ep.ced.Path)
@@ -60,6 +49,7 @@ func (ep *TCPSkeletonEndpoint) Dial(ctx context.Context, extraData []byte) (Chan
 	if err != nil {
 		return nil, ep.Errorf("Unable to create SocketConn: %s", err)
 	}
+	
 	ep.Debugf("Connected to local TCP service %s", ep.String())
 	return conn, nil
 }

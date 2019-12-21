@@ -23,20 +23,15 @@ func NewLoopStubEndpoint(
 	ced *ChannelEndpointDescriptor,
 	loopServer *LoopServer,
 ) (*LoopStubEndpoint, error) {
-	myLogger := logger.Fork("LoopStubEndpoint: %s", ced)
 	ep := &LoopStubEndpoint{
 		BasicEndpoint: BasicEndpoint{
-			Logger: myLogger,
 			ced:    ced,
 		},
 		loopServer:  loopServer,
 		callerConns: make(chan ChannelConn, 5), // Allow a backlog of 5 connect requests before Accept()
 	}
+	ep.InitBasicEndpoint(logger, ep, "LoopStubEndpoint: %s", ced)
 	return ep, nil
-}
-
-func (ep *LoopStubEndpoint) String() string {
-	return ep.Logger.Prefix()
 }
 
 // GetLoopPath returns the loop pathname associated with this LoopStubEndpoint
@@ -44,31 +39,25 @@ func (ep *LoopStubEndpoint) GetLoopPath() string {
 	return ep.ced.Path
 }
 
-// Close implements the Closer interface
-func (ep *LoopStubEndpoint) Close() error {
-	var drain bool
-
-	ep.lock.Lock()
-	if !ep.closed {
-		ep.closed = true
-		if ep.listening {
-			ep.loopServer.UnregisterAcceptor(ep.GetLoopPath(), ep)
-			ep.listening = false
-		}
-		drain = true
+// HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
+// as an advisory completion value, actually shut down, then return the real completion value.
+func (ep *LoopStubEndpoint) HandleOnceShutdown(completionErr error) error {
+	ep.Lock.Lock()
+	if ep.listening {
+		ep.loopServer.UnregisterAcceptor(ep.GetLoopPath(), ep)
+		ep.listening = false
 	}
-	ep.lock.Unlock()
+	ep.Lock.Unlock()
 
-	if drain {
-		for dc := range ep.callerConns {
-			if dc != nil {
-				dc.Close()
-			}
+	for dc := range ep.callerConns {
+		if dc != nil {
+			dc.Close()
 		}
-		close(ep.callerConns)
 	}
 
-	return nil
+	close(ep.callerConns)
+
+	return completionErr
 }
 
 // StartListening begins responding to Caller network clients in anticipation of Accept() calls. It
@@ -76,10 +65,10 @@ func (ep *LoopStubEndpoint) Close() error {
 // this method if you need to begin accepting Callers before you make the first Accept call. Part of
 // AcceptorChannelEndpoint interface.
 func (ep *LoopStubEndpoint) StartListening() error {
-	ep.lock.Lock()
-	defer ep.lock.Unlock()
+	ep.Lock.Lock()
+	defer ep.Lock.Unlock()
 	if !ep.listening {
-		if ep.closed {
+		if ep.IsStartedShutdown() {
 			return fmt.Errorf("%s: endpoint is closed", ep.Logger.Prefix())
 		}
 		err := ep.loopServer.RegisterAcceptor(ep.GetLoopPath(), ep)
@@ -128,8 +117,8 @@ func (ep *LoopStubEndpoint) AcceptAndServe(ctx context.Context, calledServiceCon
 
 // EnqueueCallerConn provides a ChannelConn to be returned by a future or pending Accept call
 func (ep *LoopStubEndpoint) EnqueueCallerConn(dialConn ChannelConn) error {
-	ep.lock.Lock()
-	defer ep.lock.Unlock()
+	ep.Lock.Lock()
+	defer ep.Lock.Unlock()
 	if !ep.listening {
 		return fmt.Errorf("%s: No listener on loop path", ep.Logger.Prefix())
 	}

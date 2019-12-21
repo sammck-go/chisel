@@ -12,7 +12,6 @@ import (
 type SSHConn struct {
 	BasicConn
 	rawSSHConn ssh.Channel
-	LocalChannelEnv
 }
 
 // NewSSHConn creates a new SSHConn
@@ -20,7 +19,7 @@ func NewSSHConn(logger *Logger, rawSSHConn ssh.Channel) (*SSHConn, error) {
 	c := &SSHConn{
 		rawSSHConn: rawSSHConn,
 	}
-	c.InitBasicConn(logger, "SSHConn")
+	c.InitBasicConn(logger, c, "SSHConn")
 	return c, nil
 }
 
@@ -37,25 +36,22 @@ func (c *SSHConn) CloseWrite() error {
 	return err
 }
 
-// Close implements the Closer interface
-func (c *SSHConn) Close() error {
-	c.CloseOnce.Do(func() {
-		err := c.rawSSHConn.Close()
-		if err != nil {
-			err = fmt.Errorf("%s: %s", c.Logger.Prefix(), err)
-		}
-		c.CloseErr = err
-		close(c.Done)
-	})
-
-	<-c.Done
-	return c.CloseErr
+// HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
+// as an advisory completion value, actually shut down, then return the real completion value.
+func (c *SSHConn) HandleOnceShutdown(completionErr error) error {
+	err := c.rawSSHConn.Close()
+	if err != nil {
+		err = c.Errorf("%s", err)
+	}
+	if completionErr == nil {
+		completionErr = err
+	}
+	return completionErr
 }
 
 // WaitForClose blocks until the Close() method has been called and completed
 func (c *SSHConn) WaitForClose() error {
-	<-c.Done
-	return c.CloseErr
+	return c.WaitShutdown()
 }
 
 // Read implements the Reader interface

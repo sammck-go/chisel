@@ -3,7 +3,6 @@ package chshare
 import (
 	"fmt"
 	"io"
-	"sync"
 	"sync/atomic"
 )
 
@@ -34,24 +33,22 @@ func AllocBasicConnID() int32 {
 
 // BasicConn is a base common implementation for local ChannelConn
 type BasicConn struct {
-	ChannelConn
-	*Logger
+	// ChannelConn
+	ShutdownHelper
 	ID              int32
 	Strname         string
-	Lock            sync.Mutex
-	Done            chan struct{}
-	CloseOnce       sync.Once
-	CloseErr        error
 	NumBytesRead    int64
 	NumBytesWritten int64
 }
 
 // InitBasicConn initializes the BasicConn portion of a new connection object
-func (c *BasicConn) InitBasicConn(logger *Logger, namef string, args ...interface{}) {
+func (c *BasicConn) InitBasicConn(
+		logger *Logger,
+		shutdownHandler OnceShutdownHandler,
+		namef string, args ...interface{}) {
 	c.ID = AllocBasicConnID()
 	c.Strname = fmt.Sprintf("[%d]", c.ID) + fmt.Sprintf(namef, args...)
-	c.Logger = logger.Fork(c.Strname)
-	c.Done = make(chan struct{})
+	c.ShutdownHelper.InitShutdownHelper(logger.Fork("%s", c.Strname), shutdownHandler)
 }
 
 // GetNumBytesRead returns the number of bytes read so far on a ChannelConn

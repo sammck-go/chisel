@@ -2,7 +2,6 @@ package chshare
 
 import (
 	"context"
-	"fmt"
 	"os"
 )
 
@@ -18,29 +17,29 @@ func NewStdioStubEndpoint(
 	logger *Logger,
 	ced *ChannelEndpointDescriptor,
 ) (*StdioStubEndpoint, error) {
-	myLogger := logger.Fork("StdioStubEndpoint")
-	pipeConn, err := NewPipeConn(myLogger, os.Stdin, os.Stdout)
-	if err != nil {
-		return nil, fmt.Errorf("%s: Failed to create stdio PipeConn: %s", myLogger.Prefix(), err)
-	}
 	ep := &StdioStubEndpoint{
 		BasicEndpoint: BasicEndpoint{
-			Logger: myLogger,
-			ced:    ced,
+			ced: ced,
 		},
-		pipeConn: pipeConn,
 	}
+	ep.InitBasicEndpoint(logger, ep, "StdioStubEndpoint")
+	pipeConn, err := NewPipeConn(ep.Logger, os.Stdin, os.Stdout)
+	if err != nil {
+		return nil, ep.Errorf("Failed to create stdio PipeConn: %s", err)
+	}
+	ep.AddShutdownChild(pipeConn)
+	ep.pipeConn = pipeConn
 	return ep, nil
 }
 
-func (ep *StdioStubEndpoint) String() string {
-	return ep.Logger.Prefix()
-}
-
-// Close implements the Closer interface
-func (ep *StdioStubEndpoint) Close() error {
-	ep.pipeConn.Close()
-	return nil
+// HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
+// as an advisory completion value, actually shut down, then return the real completion value.
+func (ep *StdioStubEndpoint) HandleOnceShutdown(completionErr error) error {
+	err := ep.pipeConn.Close()
+	if completionErr == nil {
+		completionErr = err
+	}
+	return completionErr
 }
 
 // StartListening begins responding to Caller network clients in anticipation of Accept() calls. It

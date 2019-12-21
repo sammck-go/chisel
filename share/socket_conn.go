@@ -17,7 +17,7 @@ func NewSocketConn(logger *Logger, netConn net.Conn) (*SocketConn, error) {
 	c := &SocketConn{
 		netConn: netConn,
 	}
-	c.InitBasicConn(logger, "SocketConn(%s)", netConn.RemoteAddr())
+	c.InitBasicConn(logger, c, "SocketConn(%s)", netConn.RemoteAddr())
 	return c, nil
 }
 
@@ -40,25 +40,22 @@ func (c *SocketConn) CloseWrite() error {
 	return err
 }
 
-// Close implements the Closer interface
-func (c *SocketConn) Close() error {
-	c.CloseOnce.Do(func() {
-		err := c.netConn.Close()
-		if err != nil {
-			err = fmt.Errorf("%s: %s", c.Logger.Prefix(), err)
-		}
-		c.CloseErr = err
-		close(c.Done)
-	})
-
-	<-c.Done
-	return c.CloseErr
+// HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
+// as an advisory completion value, actually shut down, then return the real completion value.
+func (c *SocketConn) HandleOnceShutdown(completionErr error) error {
+	err := c.netConn.Close()
+	if err != nil {
+		err = fmt.Errorf("%s: %s", c.Logger.Prefix(), err)
+	}
+	if completionErr == nil {
+		completionErr = err
+	}
+	return completionErr
 }
 
 // WaitForClose blocks until the Close() method has been called and completed
 func (c *SocketConn) WaitForClose() error {
-	<-c.Done
-	return c.CloseErr
+	return c.WaitShutdown()
 }
 
 // Read implements the Reader interface
