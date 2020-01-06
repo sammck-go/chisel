@@ -341,7 +341,7 @@ func client(ctx context.Context, args []string) {
 	}
 	go chshare.GoStats()
 	if err = c.Run(ctx); err != nil {
-		log.Printf("Cliant exited with error: %s, closing", err)
+		log.Printf("Client exited with error: %s, closing", err)
 		c.Close()
 	}
 }

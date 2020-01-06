@@ -95,9 +95,9 @@ func NewClient(config *Config) (*Client, error) {
 		config:       config,
 		sshConnReady: make(chan struct{}),
 		server:       u.String(),
-		running:      true,
-		runningc:     make(chan error, 1),
-		loopServer:   loopServer,
+		//running:      true,
+		//runningc:     make(chan error, 1),
+		loopServer: loopServer,
 	}
 	client.InitShutdownHelper(logger, client)
 	client.PanicOnError(client.PauseShutdown())
@@ -157,7 +157,7 @@ func (c *Client) Run(ctx context.Context) error {
 	defer cancel()
 	err := c.DoOnceActivate(
 		func() error {
-			return c.Start(subCtx) 
+			return c.Start(subCtx)
 		},
 		true,
 	)
@@ -207,10 +207,14 @@ func (c *Client) Start(ctx context.Context) error {
 }
 
 func (c *Client) keepAliveLoop() {
-	for c.running {
-		time.Sleep(c.config.KeepAlive)
-		if c.sshConn != nil {
-			c.sshConn.SendRequest("ping", true, nil)
+	for {
+		select {
+		case <-c.ShutdownStartedChan():
+			return
+		case <-time.After(c.config.KeepAlive):
+			if c.sshConn != nil {
+				c.sshConn.SendRequest("ping", true, nil)
+			}
 		}
 	}
 }
@@ -220,7 +224,7 @@ func (c *Client) connectionLoop(ctx context.Context) {
 	var connerr error
 	// stdioStarted := false
 	b := &backoff.Backoff{Max: c.config.MaxRetryInterval}
-	for c.running {
+	for !c.IsStartedShutdown() {
 		if connerr != nil {
 			attempt := int(b.Attempt())
 			maxAttempt := c.config.MaxRetryCount
@@ -317,13 +321,11 @@ func (c *Client) connectionLoop(ctx context.Context) {
 		//   continue
 		//   }
 		c.ILogf("Disconnected\n")
+		c.Shutdown(c.Errorf("Proxy Server disconnected"))
 
 		break
 	}
-	if c.sshConn == nil {
-		close(c.sshConnReady)
-	}
-	close(c.runningc)
+	c.Close()
 }
 
 // HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
@@ -331,7 +333,7 @@ func (c *Client) connectionLoop(ctx context.Context) {
 func (c *Client) HandleOnceShutdown(completionErr error) error {
 	var err error
 	if c.sshConn != nil {
-		c.sshConn.Close()
+		err = c.sshConn.Close()
 	}
 	if completionErr == nil {
 		completionErr = err

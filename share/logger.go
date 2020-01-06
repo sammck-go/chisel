@@ -43,7 +43,7 @@ var logLevelNames = [...]string{
 }
 
 var nameToLogError = func() map[string]LogLevel {
-	var result map[string]LogLevel
+	var result = make(map[string]LogLevel)
 	for i, name := range logLevelNames {
 		result[name] = LogLevel(i)
 	}
@@ -266,8 +266,14 @@ func NewLogger(prefix string, logLevel LogLevel) Logger {
 // NewLoggerWithFlags creates a new Logger with a given prefix flags, emitting output
 // to os.Stderr
 func NewLoggerWithFlags(prefix string, flag int, logLevel LogLevel) Logger {
+	prefixC := prefix
+	if prefixC != "" {
+		prefixC += ": "
+	}
+
 	l := &BasicLogger{
 		prefix:   prefix,
+		prefixC:  prefixC,
 		logger:   log.New(os.Stderr, "", flag),
 		logLevel: logLevel,
 	}
@@ -289,7 +295,7 @@ func (l *BasicLogger) Printf(f string, args ...interface{}) {
 func (l *BasicLogger) LogNoPrefix(logLevel LogLevel, args ...interface{}) {
 	if logLevel <= l.logLevel || logLevel <= LogLevelFatal {
 		msg := fmt.Sprint(args...)
-		if logLevel <= LogLevelPanic {
+		if logLevel >= LogLevelPanic {
 			l.logger.Print(msg)
 		}
 		if logLevel == LogLevelFatal {
