@@ -4,102 +4,80 @@ import (
 	"context"
 	"net"
 	"net/http"
-	"sync"
 )
 
 //HTTPServer extends net/http Server and
 //adds graceful shutdowns
 type HTTPServer struct {
-	*Logger
+	ShutdownHelper
 	*http.Server
-	listener  net.Listener
-	done      chan struct{}
-	doneErr   error
-	isStarted bool
-	isShuttingDown bool
-	stopper    sync.Once
+	listener       net.Listener
 }
 
 //NewHTTPServer creates a new HTTPServer
-func NewHTTPServer(logger *Logger) *HTTPServer {
-	return &HTTPServer{
-		Logger: logger.Fork("HTTPServer"),
+func NewHTTPServer(logger Logger) *HTTPServer {
+	h := &HTTPServer{
 		Server:   &http.Server{},
 		listener: nil,
-		done:  make(chan struct{}),
 	}
+	h.InitShutdownHelper(logger, h)
+	return h
 }
 
-// ListenAndServe Runs the HTTP server running in the background
+// HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
+// as an advisory completion value, actually shut down, then return the real completion value.
+func (h *HTTPServer) HandleOnceShutdown(completionErr error) error {
+	h.DLogf("HandleOnceShutdown")
+	err := h.listener.Close()
+	if err != nil {
+		h.DLogf("HTTPserver: close of listener failed, ignoring: %s", err)
+	}
+	if completionErr == nil {
+		completionErr = err
+	}
+	return completionErr
+}
+
+
+
+// ListenAndServe Runs the HTTP server 
 // on the given bind address, invoking the provided handler for each
 // request. It returns after the server has shutdown. The server can be
-// shutdown either by cancelling the context or by calling shutdownWith().
+// shutdown either by cancelling the context or by calling Shutdown().
 func (h *HTTPServer) ListenAndServe(ctx context.Context, addr string, handler http.Handler) error {
-	if h.isStarted {
-		return h.DebugErrorf("HTTP server has already been started")
-	}
-	l, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
-	}
-	h.Handler = handler
-	h.listener = l
-	h.isStarted = true
-	go func() {
-		h.ShutdownWith(h.Serve(l))
-	}()
-	go func() {
-		select{
-			case <-ctx.Done():
-				h.ShutdownWith(ctx.Err())
-			case <-h.done:
-		}
-	}()
-	return h.Wait()
-}
 
-// ShutdownWith begins asynchronous shutdown of the server, with
-// a preferred exit code. If shutdown has already begun, has no effect.
-// Shutdown is complete when Wait() returns.
-func (h *HTTPServer) ShutdownWith(err error) {
-	h.stopper.Do(func(){
-		go func(){
-			h.isShuttingDown = true
-			if h.isStarted {
-				lerr := h.listener.Close()
-				if lerr != nil {
-					h.Debugf("HTTPserver: close of listener failed, ignoring: %s", lerr)
-				}
-			} else {
-				h.isStarted = true
+	err := h.DoOnceActivate(
+		func() error {
+			h.ShutdownOnContext(ctx)
+
+			l, err := net.Listen("tcp", addr)
+			if err != nil {
+				return h.DLogErrorf("Listen failed: %s", err)
 			}
-			h.doneErr = err
-			close(h.done)
-		}()
-	})
+			h.Handler = handler
+			h.listener = l
+
+			go func() {
+				h.Shutdown(h.Serve(l))
+			}()
+
+			return nil
+		},
+		true,
+	)
+	if err == nil {
+		err = h.WaitShutdown()
+	}
+	return err
 }
 
-// Shutdown begins normal asynchronous shutdown of the server.
-// If shutdown has already begun, has no effect.
-// Shutdown is complete when Wait() returns.
-func(h *HTTPServer) Shutdown() {
-	h.ShutdownWith(nil)
+
+// Shutdown completely shuts down the server, then returns the final completion code
+func (h *HTTPServer) Shutdown(completionError error) error {
+	return h.ShutdownHelper.Shutdown(completionError)
 }
 
-// Close closes the HTTPServer and stops it from listening. Does not return until
-// resources are freed.
+// Close completely shuts down the server, then returns the final completion code
 func (h *HTTPServer) Close() error {
-	h.Shutdown()
-	return h.Wait()
-}
-
-// DoneChan returns a channel that is closed after the server has completely shut down
-func (h *HTTPServer) DoneChan() chan struct{} {
-	return h.done
-}
-
-// Wait waits for an HTTPServer to fully shut down. Returns final completion status.
-func (h *HTTPServer) Wait() error {
-	<-h.done
-	return h.doneErr
+	return h.ShutdownHelper.Close()
 }

@@ -12,10 +12,10 @@ type TCPSkeletonEndpoint struct {
 }
 
 // NewTCPSkeletonEndpoint creates a new TCPSkeletonEndpoint
-func NewTCPSkeletonEndpoint(logger *Logger, ced *ChannelEndpointDescriptor) (*TCPSkeletonEndpoint, error) {
+func NewTCPSkeletonEndpoint(logger Logger, ced *ChannelEndpointDescriptor) (*TCPSkeletonEndpoint, error) {
 	ep := &TCPSkeletonEndpoint{
 		BasicEndpoint: BasicEndpoint{
-			ced:    ced,
+			ced: ced,
 		},
 	}
 	ep.InitBasicEndpoint(logger, ep, "TCPSkeletonEndpoint: %s", ced)
@@ -31,13 +31,13 @@ func (ep *TCPSkeletonEndpoint) HandleOnceShutdown(completionErr error) error {
 // Dial initiates a new connection to a Called Service. Part of the
 // DialerChannelEndpoint interface
 func (ep *TCPSkeletonEndpoint) Dial(ctx context.Context, extraData []byte) (ChannelConn, error) {
-	ep.Debugf("Dialing local TCP service at %s", ep.ced.Path)
-	
+	ep.DLogf("Dialing local TCP service at %s", ep.ced.Path)
+
 	if ep.IsStartedShutdown() {
 		err := ep.Errorf("Endpoint is closed: %s", ep.String())
 		return nil, err
 	}
-	
+
 	// TODO: make sure IPV6 works
 	var d net.Dialer
 	netConn, err := d.DialContext(ctx, "tcp", ep.ced.Path)
@@ -49,8 +49,10 @@ func (ep *TCPSkeletonEndpoint) Dial(ctx context.Context, extraData []byte) (Chan
 	if err != nil {
 		return nil, ep.Errorf("Unable to create SocketConn: %s", err)
 	}
-	
-	ep.Debugf("Connected to local TCP service %s", ep.String())
+
+	ep.AddShutdownChild(conn)
+
+	ep.DLogf("Connected to local TCP service %s", ep.String())
 	return conn, nil
 }
 

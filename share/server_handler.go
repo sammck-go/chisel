@@ -16,10 +16,10 @@ func (s *Server) handleClientHandler(ctx context.Context, w http.ResponseWriter,
 		protocol := r.Header.Get("Sec-WebSocket-Protocol")
 		if strings.HasPrefix(protocol, "xevo-chisel-") {
 			if protocol == ProtocolVersion {
-				s.Debugf("Upgrading to websocket, URL tail=\"%s\", protocol=\"%s\"", r.URL.String(), protocol)
+				s.DLogf("Upgrading to websocket, URL tail=\"%s\", protocol=\"%s\"", r.URL.String(), protocol)
 				wsConn, err := upgrader.Upgrade(w, r, nil)
 				if err != nil {
-					err = s.DebugErrorf("Failed to upgrade to websocket: %s", err)
+					err = s.DLogErrorf("Failed to upgrade to websocket: %s", err)
 					http.Error(w, err.Error(), 503)
 					return
 				}
@@ -32,7 +32,7 @@ func (s *Server) handleClientHandler(ctx context.Context, w http.ResponseWriter,
 				return
 			}
 
-			s.Infof("Client connection using unsupported websocket protocol '%s', expected '%s'",
+			s.ILogf("Client connection using unsupported websocket protocol '%s', expected '%s'",
 				protocol, ProtocolVersion)
 
 			http.Error(w, "Not Found", 404)
@@ -65,23 +65,26 @@ func (s *Server) handleClientHandler(ctx context.Context, w http.ResponseWriter,
 func (s *Server) handleWebsocket(ctx context.Context, wsConn *websocket.Conn) {
 	session, err := NewServerSSHSession(s)
 	if err != nil {
-		session.Debugf("Failed to create ServerSSHSession: %s", err)
+		session.DLogf("Failed to create ServerSSHSession: %s", err)
 		return
 	}
+	s.AddShutdownChild(session)
+	session.ShutdownOnContext(ctx)
 	conn := NewWebSocketConn(wsConn)
 	session.Run(ctx, conn)
 	conn.Close() // closes the websocket too
+	session.Close()
 }
 
-func (s *Server) handleSocksStream(l *Logger, src io.ReadWriteCloser) {
+func (s *Server) handleSocksStream(l Logger, src io.ReadWriteCloser) {
 	conn := NewRWCConn(src)
 	s.connStats.Open()
-	l.Debugf("%v Opening", s.connStats)
+	l.DLogf("%v Opening", s.connStats)
 	err := s.socksServer.ServeConn(conn)
 	s.connStats.Close()
 	if err != nil && !strings.HasSuffix(err.Error(), "EOF") {
-		l.Debugf("%v: Closed (error: %s)", s.connStats, err)
+		l.DLogf("%v: Closed (error: %s)", s.connStats, err)
 	} else {
-		l.Debugf("%v: Closed", s.connStats)
+		l.DLogf("%v: Closed", s.connStats)
 	}
 }

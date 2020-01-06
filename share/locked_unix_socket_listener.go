@@ -13,7 +13,7 @@ import (
 // used to prevent collisions of unix-domain socket listeners but still allow
 // orphaned socket files to be deleted.
 type LockedUnixSocketListener struct {
-	*Logger
+	Logger
 	lock         sync.Mutex
 	path         string
 	lockPath     string
@@ -39,27 +39,27 @@ func (l *LockedUnixSocketListener) Close() error {
 		var unlockErr error
 		if l.unixListener != nil {
 			os.Remove(l.path)
-			l.Debugf("Closing actual unix listensocket")
+			l.DLogf("Closing actual unix listensocket")
 			ucloseErr = l.unixListener.Close()
-			l.Debugf("Actual unix listen socket")
+			l.DLogf("Actual unix listen socket")
 		}
 		if l.lockFd != nil {
 			// Remove the lockfile before we release the lock. This will allow someone else
 			// to immediately recreate the lockfile and claim a lock on it, which is fine.
-			l.Debugf("unlocking/removing unix domain socket lockfile")
+			l.DLogf("unlocking/removing unix domain socket lockfile")
 			os.Remove(l.lockPath)
 			// ignore error from remove
 			err := syscall.Flock(int(l.lockFd.Fd()), syscall.LOCK_UN)
 			if err != nil {
 				l.lockFd.Close()
-				unlockErr = l.DebugErrorf("Unlock of lockfile \"%s\" failed: %s)", l.lockPath, err)
+				unlockErr = l.DLogErrorf("Unlock of lockfile \"%s\" failed: %s)", l.lockPath, err)
 			} else {
 				err = l.lockFd.Close()
 				if err != nil {
-					unlockErr = l.DebugErrorf("Close of lockfile \"%s\" failed: %s)", l.lockPath, err)
+					unlockErr = l.DLogErrorf("Close of lockfile \"%s\" failed: %s)", l.lockPath, err)
 				}
 			}
-			l.Debugf("DONE unlocking/removing unix domain socket lockfile")
+			l.DLogf("DONE unlocking/removing unix domain socket lockfile")
 		}
 		l.closeErr = ucloseErr
 		if l.closeErr == nil {
@@ -76,7 +76,7 @@ func (l *LockedUnixSocketListener) Close() error {
 // locks a ".lock" lockfile next to the unix domain socket path, to prevent multiple listeners
 // on the same pathname but still allow orphaned domain sockets to be deleted. Requires
 // other players to follow the same rules.
-func NewLockedUnixSocketListener(logger *Logger, path string) (*LockedUnixSocketListener, error) {
+func NewLockedUnixSocketListener(logger Logger, path string) (*LockedUnixSocketListener, error) {
 	l := &LockedUnixSocketListener{
 		Logger: logger.Fork("LockedUnixSocketListener(\"%s\")", path),
 	}
@@ -128,7 +128,7 @@ func NewLockedUnixSocketListener(logger *Logger, path string) (*LockedUnixSocket
 		return nil, l.Errorf("Unix domain socket listen failed for path '%s': %s", path, err)
 	}
 
-	l.Debugf("Listening on unix domain socket path \"%s\"", abspath)
+	l.DLogf("Listening on unix domain socket path \"%s\"", abspath)
 
 	l.unixListener = unixListener
 
@@ -148,4 +148,3 @@ func (l *LockedUnixSocketListener) Accept() (net.Conn, error) {
 func (l *LockedUnixSocketListener) Addr() net.Addr {
 	return l.unixListener.Addr()
 }
-

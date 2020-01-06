@@ -14,7 +14,7 @@ type StdioSkeletonEndpoint struct {
 
 // NewStdioSkeletonEndpoint creates a new StdioSkeletonEndpoint
 func NewStdioSkeletonEndpoint(
-	logger *Logger,
+	logger Logger,
 	ced *ChannelEndpointDescriptor,
 ) (*StdioSkeletonEndpoint, error) {
 	ep := &StdioSkeletonEndpoint{

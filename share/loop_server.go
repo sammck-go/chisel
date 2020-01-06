@@ -17,13 +17,13 @@ type loopEntry struct {
 
 // LoopServer maintains a namespace of loop pathnames with waiting LoopStubEndpoint's.
 type LoopServer struct {
-	*Logger
+	Logger
 	lock    sync.Mutex
 	entries map[string]*loopEntry
 }
 
 // NewLoopServer creates a new LoopServer
-func NewLoopServer(logger *Logger) (*LoopServer, error) {
+func NewLoopServer(logger Logger) (*LoopServer, error) {
 	s := &LoopServer{
 		Logger: logger.Fork("LoopServer"),
 	}

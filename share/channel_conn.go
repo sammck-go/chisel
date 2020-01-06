@@ -12,6 +12,7 @@ import (
 type ChannelConn interface {
 	io.ReadWriteCloser
 	WriteHalfCloser
+	AsyncShutdowner
 
 	// WaitForClose blocks until the Close() method has been called and completed. The error returned
 	// from the first Close() is returned
@@ -43,12 +44,13 @@ type BasicConn struct {
 
 // InitBasicConn initializes the BasicConn portion of a new connection object
 func (c *BasicConn) InitBasicConn(
-		logger *Logger,
-		shutdownHandler OnceShutdownHandler,
-		namef string, args ...interface{}) {
+	logger Logger,
+	shutdownHandler OnceShutdownHandler,
+	namef string, args ...interface{}) {
 	c.ID = AllocBasicConnID()
 	c.Strname = fmt.Sprintf("[%d]", c.ID) + fmt.Sprintf(namef, args...)
-	c.ShutdownHelper.InitShutdownHelper(logger.Fork("%s", c.Strname), shutdownHandler)
+	c.InitShutdownHelper(logger.Fork("%s", c.Strname), shutdownHandler)
+	c.PanicOnError(c.Activate())
 }
 
 // GetNumBytesRead returns the number of bytes read so far on a ChannelConn

@@ -143,13 +143,13 @@ var lastBasicBridgeNum int64 = 0
 // one of the ChannelConn's.
 func BasicBridgeChannels(
 	ctx context.Context,
-	logger *Logger,
+	logger Logger,
 	caller ChannelConn,
 	calledService ChannelConn,
 ) (int64, int64, error) {
 	bridgeNum := atomic.AddInt64(&lastBasicBridgeNum, 1)
 	logger = logger.Fork("BasicBridge#%d (%s->%s)", bridgeNum, caller, calledService)
-	logger.Debugf("Starting")
+	logger.DLogf("Starting")
 	var callerToServiceBytes, serviceToCallerBytes int64
 	var callerToServiceErr, serviceToCallerErr error
 	var wg sync.WaitGroup
@@ -158,28 +158,28 @@ func BasicBridgeChannels(
 		// Copy from caller to calledService
 		*bytesCopied, *copyErr = io.Copy(dst, src)
 		if *copyErr != nil {
-			logger.Debugf("io.Copy(%s->%s) returned error: %s", src, dst, *copyErr)
+			logger.DLogf("io.Copy(%s->%s) returned error: %s", src, dst, *copyErr)
 		}
-		logger.Debugf("Done with io.Copy(%s->%s); shutting down write side", src, dst)
+		logger.DLogf("Done with io.Copy(%s->%s); shutting down write side", src, dst)
 		dst.CloseWrite()
-		logger.Debugf("Done with write side shutdown of %s->%s", src, dst)
+		logger.DLogf("Done with write side shutdown of %s->%s", src, dst)
 		wg.Done()
 	}
 	go copyFunc(caller, calledService, &callerToServiceBytes, &callerToServiceErr)
 	go copyFunc(calledService, caller, &serviceToCallerBytes, &serviceToCallerErr)
 	wg.Wait()
-	logger.Debugf("Wait complete")
-	logger.Debugf("callerToService=%d, err=%s", callerToServiceBytes, callerToServiceErr)
-	logger.Debugf("serviceToCaller=%d, err=%s", serviceToCallerBytes, serviceToCallerErr)
-	logger.Debugf("Closing calledService")
+	logger.DLogf("Wait complete")
+	logger.DLogf("callerToService=%d, err=%s", callerToServiceBytes, callerToServiceErr)
+	logger.DLogf("serviceToCaller=%d, err=%s", serviceToCallerBytes, serviceToCallerErr)
+	logger.DLogf("Closing calledService")
 	calledService.Close()
-	logger.Debugf("Closing caller")
+	logger.DLogf("Closing caller")
 	caller.Close()
 	err := callerToServiceErr
 	if err == nil {
 		err = serviceToCallerErr
 	}
-	logger.Debugf("Exiting, callerToService=%d, serviceToCaller=%d, err=%s", callerToServiceBytes, serviceToCallerBytes, err)
+	logger.DLogf("Exiting, callerToService=%d, serviceToCaller=%d, err=%s", callerToServiceBytes, serviceToCallerBytes, err)
 	return callerToServiceBytes, serviceToCallerBytes, err
 }
 

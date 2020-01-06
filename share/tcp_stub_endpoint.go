@@ -15,7 +15,7 @@ type TCPStubEndpoint struct {
 }
 
 // NewTCPStubEndpoint creates a new TCPStubEndpoint
-func NewTCPStubEndpoint(logger *Logger, ced *ChannelEndpointDescriptor) (*TCPStubEndpoint, error) {
+func NewTCPStubEndpoint(logger Logger, ced *ChannelEndpointDescriptor) (*TCPStubEndpoint, error) {
 	ep := &TCPStubEndpoint{
 		BasicEndpoint: BasicEndpoint{
 			ced: ced,
@@ -100,6 +100,7 @@ func (ep *TCPStubEndpoint) Accept(ctx context.Context) (ChannelConn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: Unable to create SocketConn: %s", ep.Logger.Prefix(), err)
 	}
+	ep.AddShutdownChild(conn)
 	return conn, nil
 }
 

@@ -13,7 +13,7 @@ type SocketConn struct {
 }
 
 // NewSocketConn creates a new SocketConn
-func NewSocketConn(logger *Logger, netConn net.Conn) (*SocketConn, error) {
+func NewSocketConn(logger Logger, netConn net.Conn) (*SocketConn, error) {
 	c := &SocketConn{
 		netConn: netConn,
 	}
@@ -35,7 +35,7 @@ func (c *SocketConn) CloseWrite() error {
 			err = c.Errorf("CloseWrite falied: %s", err)
 		}
 	} else {
-		c.Debugf("CloseWrite() ignored--not implemented by net.Conn implementer")
+		c.DLogf("CloseWrite() ignored--not implemented by net.Conn implementer")
 	}
 	return err
 }

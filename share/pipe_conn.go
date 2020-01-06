@@ -16,7 +16,7 @@ type PipeConn struct {
 }
 
 // NewPipeConn creates a new PipeConn
-func NewPipeConn(logger *Logger, input io.ReadCloser, output io.WriteCloser) (*PipeConn, error) {
+func NewPipeConn(logger Logger, input io.ReadCloser, output io.WriteCloser) (*PipeConn, error) {
 	c := &PipeConn{
 		input:  input,
 		output: output,

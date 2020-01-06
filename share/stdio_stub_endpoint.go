@@ -14,7 +14,7 @@ type StdioStubEndpoint struct {
 
 // NewStdioStubEndpoint creates a new StdioStubEndpoint
 func NewStdioStubEndpoint(
-	logger *Logger,
+	logger Logger,
 	ced *ChannelEndpointDescriptor,
 ) (*StdioStubEndpoint, error) {
 	ep := &StdioStubEndpoint{

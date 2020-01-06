@@ -52,17 +52,20 @@ func (s *ServerSSHSession) GetSSHConn() (ssh.Conn, error) {
 	return s.sshConn, nil
 }
 
-// runWithSSHConn runs a proxy session from a client from start to end, given
-// an incoming ssh.ServerConn. On exit, the incoming ssh.ServerConn still
-// needs to be closed.
-func (s *ServerSSHSession) runWithSSHConn(
+// startWithSSHConn startss a proxy session runing in the background, given
+// an incoming ssh.ServerConn.
+func (s *ServerSSHSession) startWithSSHConn(
 	ctx context.Context,
 	sshConn *ssh.ServerConn,
 	newSSHChannels <-chan ssh.NewChannel,
 	sshRequests <-chan *ssh.Request,
 ) error {
-	subCtx, subCtxCancel := context.WithCancel(ctx)
-	defer subCtxCancel()
+	err := s.PauseShutdown()
+	if (err != nil) {
+		return s.DLogErrorf("runWithSSHConn() failed: %s", err)
+	}
+	defer s.ResumeShutdown()
+	s.ShutdownOnContext(ctx)
 
 	s.sshConn = sshConn
 	s.newSSHChannels = newSSHChannels
@@ -77,33 +80,36 @@ func (s *ServerSSHSession) runWithSSHConn(
 	}
 
 	//verify configuration
-	s.Debugf("Receiving configuration")
+	s.DLogf("Receiving configuration")
 	// wait for configuration request, with timeout
-	cfgCtx, cfgCtxCancel := context.WithTimeout(subCtx, 10*time.Second)
+	cfgCtx, cfgCtxCancel := context.WithTimeout(ctx, 10*time.Second)
 	r, err := s.receiveSSHRequest(cfgCtx)
 	cfgCtxCancel()
 	if err != nil {
-		return s.DebugErrorf("receiveSSHRequest failed: %s", err)
+		err = s.DLogErrorf("receiveSSHRequest failed: %s", err)
+		s.StartShutdown(err)
+		return err
 	}
 
-	s.Debugf("Received SSH Req")
+	s.DLogf("Received SSH Req")
 
 	// convenience function to send an error reply and return
 	// the original error. Ignores failures sending the reply
 	// since we will be bailing out anyway
 	failed := func(err error) error {
-		s.sendSSHErrorReply(subCtx, r, err)
+		s.sendSSHErrorReply(ctx, r, err)
+		s.StartShutdown(err)
 		return err
 	}
 
 	if r.Type != "config" {
-		return failed(s.DebugErrorf("Expecting \"config\" request, got \"%s\"", r.Type))
+		return failed(s.DLogErrorf("Expecting \"config\" request, got \"%s\"", r.Type))
 	}
 
 	c := &SessionConfigRequest{}
 	err = c.Unmarshal(r.Payload)
 	if err != nil {
-		return failed(s.DebugErrorf("Invalid session config request encoding: %s", err))
+		return failed(s.DLogErrorf("Invalid session config request encoding: %s", err))
 	}
 
 	//print if client and server  versions dont match
@@ -112,13 +118,13 @@ func (s *ServerSSHSession) runWithSSHConn(
 		if v == "" {
 			v = "<unknown>"
 		}
-		s.Infof("WARNING: Chisel Client version (%s) differs from server version (%s)", v, BuildVersion)
+		s.ILogf("WARNING: Chisel Client version (%s) differs from server version (%s)", v, BuildVersion)
 	}
 
 	//confirm reverse tunnels are allowed
 	for _, chd := range c.ChannelDescriptors {
 		if chd.Reverse && !s.server.reverseOk {
-			return failed(s.DebugErrorf("Reverse port forwarding not enabled on server"))
+			return failed(s.DLogErrorf("Reverse port forwarding not enabled on server"))
 		}
 	}
 	//if user is provided, ensure they have
@@ -127,7 +133,7 @@ func (s *ServerSSHSession) runWithSSHConn(
 		for _, chd := range c.ChannelDescriptors {
 			chdString := chd.String()
 			if !user.HasAccess(chdString) {
-				return failed(s.DebugErrorf("Access to \"%s\" denied", chdString))
+				return failed(s.DLogErrorf("Access to \"%s\" denied", chdString))
 			}
 		}
 	}
@@ -135,49 +141,78 @@ func (s *ServerSSHSession) runWithSSHConn(
 	//set up reverse port forwarding
 	for i, chd := range c.ChannelDescriptors {
 		if chd.Reverse {
-			s.Debugf("Reverse-mode route[%d] %s; starting stub listener", i, chd.String())
+			s.DLogf("Reverse-mode route[%d] %s; starting stub listener", i, chd.String())
 			proxy := NewTCPProxy(s.Logger, s, i, chd)
-			if err := proxy.Start(subCtx); err != nil {
-				return failed(s.DebugErrorf("Unable to start stub listener %s: %s", chd.String(), err))
+			s.AddShutdownChild(proxy)
+			if err := proxy.Start(ctx); err != nil {
+				return failed(s.DLogErrorf("Unable to start stub listener %s: %s", chd.String(), err))
 			}
 		} else {
-			s.Debugf("Forward-mode route[%d] %s; connections will be created on demand", i, chd.String())
+			s.DLogf("Forward-mode route[%d] %s; connections will be created on demand", i, chd.String())
 		}
 	}
 
 	//success!
-	err = s.sendSSHReply(subCtx, r, true, nil)
+	err = s.sendSSHReply(ctx, r, true, nil)
 	if err != nil {
-		return s.DebugErrorf("Failed to send SSH config success response: %s", err)
+		err = s.DLogErrorf("Failed to send SSH config success response: %s", err)
+		s.StartShutdown(err)
+		return err
 	}
 
-	go s.handleSSHRequests(subCtx, sshRequests)
-	go s.handleSSHChannels(subCtx, newSSHChannels)
+	go s.handleSSHRequests(ctx, sshRequests)
+	go s.handleSSHChannels(ctx, newSSHChannels)
 
-	s.Debugf("SSH session up and running")
+	s.DLogf("SSH session up and running")
 
-	return sshConn.Wait()
+	go func(){
+		err := sshConn.Wait()
+		s.StartShutdown(err)
+	}()
+	return nil
+}
+
+
+
+// runWithSSHConn runs a proxy session from a client from start to end, given
+// an incoming ssh.ServerConn. On exit, the incoming ssh.ServerConn still
+// needs to be closed.
+func (s *ServerSSHSession) runWithSSHConn(
+	ctx context.Context,
+	sshConn *ssh.ServerConn,
+	newSSHChannels <-chan ssh.NewChannel,
+	sshRequests <-chan *ssh.Request,
+) error {
+	err := s.startWithSSHConn(ctx, sshConn, newSSHChannels, sshRequests)
+	if (err != nil) {
+		return err
+	}
+	return s.WaitShutdown()
 }
 
 // Run runs an SSH server session to completion from an incoming
 // just-connected client socket (which has already been wrapped on a websocket)
-// The incoming conn is not
 func (s *ServerSSHSession) Run(ctx context.Context, conn net.Conn) error {
-	s.Debugf("SSH Handshaking...")
-	sshConn, newSSHChannels, sshRequests, err := ssh.NewServerConn(conn, s.server.sshConfig)
-	if err != nil {
-		s.Debugf("Failed to handshake (%s)", err)
-		close(s.done)
+	err := s.PauseShutdown()
+	if (err != nil) {
+		err = s.DLogErrorf("Run() failed: %s", err)
 		return err
 	}
 
-	err = s.runWithSSHConn(ctx, sshConn, newSSHChannels, sshRequests)
+	
+	s.DLogf("SSH Handshaking...")
+	sshConn, newSSHChannels, sshRequests, err := ssh.NewServerConn(conn, s.server.sshConfig)
 	if err != nil {
-		s.Debugf("SSH session failed: %s", err)
+		return s.ResumeAndShutdown(s.DLogErrorf("Failed to handshake (%s)", err))
 	}
 
-	s.Debugf("Closing SSH connection")
-	sshConn.Close()
-	close(s.done)
-	return err
+	s.ResumeShutdown()
+
+	err = s.runWithSSHConn(ctx, sshConn, newSSHChannels, sshRequests)
+	if err != nil {
+		return s.Shutdown(s.DLogErrorf("SSH session failed: %s", err))
+	}
+
+	s.DLogf("Closing SSH connection")
+	return s.Close()
 }

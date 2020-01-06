@@ -4,17 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httputil"
+	socks5 "github.com/armon/go-socks5"
+	"github.com/gorilla/websocket"
+	"github.com/jpillora/requestlog"
+	"golang.org/x/crypto/ssh"
 	"io/ioutil"
 	"log"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"regexp"
-	"github.com/jpillora/requestlog"
-	socks5 "github.com/armon/go-socks5"
-	"golang.org/x/crypto/ssh"
-	"net/url"
-	"github.com/gorilla/websocket"
 )
 
 // ProxyServerConfig is the configuration for the chisel service
@@ -31,7 +31,7 @@ type ProxyServerConfig struct {
 
 // Server respresent a chisel service
 type Server struct {
-	*Logger
+	ShutdownHelper
 	connStats    ConnStats
 	fingerprint  string
 	httpServer   *HTTPServer
@@ -42,6 +42,7 @@ type Server struct {
 	sshConfig    *ssh.ServerConfig
 	users        *UserIndex
 	reverseOk    bool
+	httpHandler  http.Handler
 }
 
 var upgrader = websocket.Upgrader{
@@ -52,15 +53,17 @@ var upgrader = websocket.Upgrader{
 
 // NewServer creates and returns a new chisel server
 func NewServer(config *ProxyServerConfig) (*Server, error) {
-	logger := NewLogger("server")
+	logLevel := LogLevelInfo
+	if config.Debug {
+		logLevel = LogLevelDebug
+	}
+	logger := NewLogger("server", logLevel)
 	s := &Server{
 		httpServer: NewHTTPServer(logger),
-		Logger:     logger,
 		sessions:   NewUsers(),
 		reverseOk:  config.Reverse,
 	}
-	s.Info = true
-	s.Debug = config.Debug
+	s.InitShutdownHelper(logger, s)
 	s.users = NewUserIndex(s.Logger)
 	if config.AuthFile != "" {
 		if err := s.users.LoadUsers(config.AuthFile); err != nil {
@@ -109,7 +112,7 @@ func NewServer(config *ProxyServerConfig) (*Server, error) {
 	//setup socks server (not listening on any port!)
 	if config.Socks5 {
 		socksConfig := &socks5.Config{}
-		if s.Debug {
+		if s.GetLogLevel() >= LogLevelDebug {
 			socksConfig.Logger = log.New(os.Stdout, "[socks]", log.Ldate|log.Ltime)
 		} else {
 			socksConfig.Logger = log.New(ioutil.Discard, "", 0)
@@ -118,11 +121,11 @@ func NewServer(config *ProxyServerConfig) (*Server, error) {
 		if err != nil {
 			return nil, err
 		}
-		s.Infof("SOCKS5 server enabled")
+		s.ILogf("SOCKS5 server enabled")
 	}
 	//setup socks server (not listening on any port!)
 	if config.NoLoop {
-		s.Infof("Loop server disabled")
+		s.ILogf("Loop server disabled")
 	} else {
 		s.loopServer, err = NewLoopServer(s.Logger)
 		if err != nil {
@@ -132,44 +135,63 @@ func NewServer(config *ProxyServerConfig) (*Server, error) {
 
 	//print when reverse tunnelling is enabled
 	if config.Reverse {
-		s.Infof("Reverse tunnelling enabled")
+		s.ILogf("Reverse tunnelling enabled")
 	}
 	return s, nil
 }
 
 // Run is responsible for starting the chisel service
 func (s *Server) Run(ctx context.Context, host, port string) error {
-	s.Infof("Fingerprint %s", s.fingerprint)
+	err := s.DoOnceActivate(
+		func() error {
+			s.ShutdownOnContext(ctx)
 
-	if s.users.Len() > 0 {
-		s.Infof("User authenication enabled")
+			s.ILogf("Fingerprint %s", s.fingerprint)
+
+			if s.users.Len() > 0 {
+				s.ILogf("User authentication enabled")
+			}
+
+			if s.reverseProxy != nil {
+				s.ILogf("Reverse proxy enabled")
+			}
+
+			s.ILogf("Listening on %s:%s...", host, port)
+
+			h := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				s.handleClientHandler(ctx, w, r)
+			}))
+
+			if s.GetLogLevel() >= LogLevelDebug {
+				h = requestlog.Wrap(h)
+			}
+
+			s.httpHandler = h
+
+			return nil
+		},
+		true,
+	)
+
+	if err != nil {
+		return err
 	}
 
-	if s.reverseProxy != nil {
-		s.Infof("Reverse proxy enabled")
-	}
+	s.httpServer.ListenAndServe(ctx, host+":"+port, s.httpHandler)
 
-	s.Infof("Listening on %s:%s...", host, port)
-
-	h := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request){
-			s.handleClientHandler(ctx, w, r)
-	}))
-
-	if s.Debug {
-		h = requestlog.Wrap(h)
-	}
-
-	return s.httpServer.ListenAndServe(ctx, host+":"+port, h)
+	return s.Close()
 }
 
-// Wait waits for the http server to close
-func (s *Server) Wait() error {
-	return s.httpServer.Wait()
-}
+// HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
+// as an advisory completion value, actually shut down, then return the real completion value.
+func (s *Server) HandleOnceShutdown(completionErr error) error {
+	s.DLogf("HandleOnceShutdown")
+	err := s.httpServer.Close()
 
-// Close forcibly closes the http server
-func (s *Server) Close() error {
-	return s.httpServer.Close()
+	if completionErr == nil {
+		completionErr = err
+	}
+	return completionErr
 }
 
 // GetFingerprint is used to access the server fingerprint
@@ -187,7 +209,7 @@ func (s *Server) authUser(c ssh.ConnMetadata, password []byte) (*ssh.Permissions
 	n := c.User()
 	user, found := s.users.Get(n)
 	if !found || user.Pass != string(password) {
-		s.Debugf("Login failed for user: %s", n)
+		s.DLogf("Login failed for user: %s", n)
 		return nil, errors.New("Invalid authentication for username: %s")
 	}
 	// insert the user session map

@@ -15,7 +15,7 @@ type SSHConn struct {
 }
 
 // NewSSHConn creates a new SSHConn
-func NewSSHConn(logger *Logger, rawSSHConn ssh.Channel) (*SSHConn, error) {
+func NewSSHConn(logger Logger, rawSSHConn ssh.Channel) (*SSHConn, error) {
 	c := &SSHConn{
 		rawSSHConn: rawSSHConn,
 	}

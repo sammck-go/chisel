@@ -12,6 +12,7 @@ import (
 // remote endpoints and proxy them to local network services.
 type ChannelEndpoint interface {
 	io.Closer
+	AsyncShutdowner
 }
 
 // AcceptorChannelEndpoint is a ChannelEndpoint that can be asked to accept and return connections from
@@ -90,28 +91,29 @@ type LocalSkeletonChannelEndpoint interface {
 // BasicEndpoint is a base common implementation for local ChannelEndPoints
 type BasicEndpoint struct {
 	ShutdownHelper
-	Strname         string
-	ced             *ChannelEndpointDescriptor
+	Strname string
+	ced     *ChannelEndpointDescriptor
 }
 
 // InitBasicEndpoint initializes a BasicEndpoint
-func(ep *BasicEndpoint) InitBasicEndpoint(
-		logger *Logger,
-		shutdownHandler OnceShutdownHandler,
-		namef string,
-		args ...interface{},
+func (ep *BasicEndpoint) InitBasicEndpoint(
+	logger Logger,
+	shutdownHandler OnceShutdownHandler,
+	namef string,
+	args ...interface{},
 ) {
 	ep.Strname = fmt.Sprintf(namef, args...)
 	ep.InitShutdownHelper(logger.Fork("%s", ep.Strname), shutdownHandler)
+	ep.PanicOnError(ep.Activate())
 }
 
-func(ep *BasicEndpoint) String() string {
+func (ep *BasicEndpoint) String() string {
 	return ep.Strname
 }
 
 // NewLocalStubChannelEndpoint creates a LocalStubChannelEndpoint from its descriptor
 func NewLocalStubChannelEndpoint(
-	logger *Logger,
+	logger Logger,
 	env LocalChannelEnv,
 	ced *ChannelEndpointDescriptor,
 ) (LocalStubChannelEndpoint, error) {
@@ -148,7 +150,7 @@ func NewLocalStubChannelEndpoint(
 
 // NewLocalSkeletonChannelEndpoint creates a LocalSkeletonChannelEndpoint from its descriptor
 func NewLocalSkeletonChannelEndpoint(
-	logger *Logger,
+	logger Logger,
 	env LocalChannelEnv,
 	ced *ChannelEndpointDescriptor,
 ) (LocalSkeletonChannelEndpoint, error) {

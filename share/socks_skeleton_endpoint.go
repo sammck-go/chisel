@@ -16,13 +16,13 @@ type SocksSkeletonEndpoint struct {
 
 // NewSocksSkeletonEndpoint creates a new SocksSkeletonEndpoint
 func NewSocksSkeletonEndpoint(
-	logger *Logger,
+	logger Logger,
 	ced *ChannelEndpointDescriptor,
 	socksServer *socks5.Server,
 ) (*SocksSkeletonEndpoint, error) {
 	ep := &SocksSkeletonEndpoint{
 		BasicEndpoint: BasicEndpoint{
-			ced:    ced,
+			ced: ced,
 		},
 	}
 	ep.InitBasicEndpoint(logger, ep, "SocksSkeletonEndpoint: %s", ced)
@@ -66,6 +66,8 @@ func (ep *SocksSkeletonEndpoint) Dial(ctx context.Context, extraData []byte) (Ch
 		conn.Close()
 		return nil, fmt.Errorf("%s: Socks5 server refused connect: %s", ep.Logger.Prefix(), err)
 	}
+
+	ep.AddShutdownChild(conn)
 
 	return conn, nil
 }

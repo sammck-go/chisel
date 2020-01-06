@@ -51,16 +51,16 @@ func FingerprintKey(k ssh.PublicKey) string {
 // HandleTCPStream handles a new ssh.Conn from a remote Stub that needs to Dial
 // to a local network resource and pipe between them. Returns when the connection
 // is complete. src will be closed before returning.
-func HandleTCPStream(l *Logger, connStats *ConnStats, src io.ReadWriteCloser, remote string) {
+func HandleTCPStream(l Logger, connStats *ConnStats, src io.ReadWriteCloser, remote string) {
 	dst, err := net.Dial("tcp", remote)
 	if err != nil {
-		l.Debugf("Remote failed (%s)", err)
+		l.DLogf("Remote failed (%s)", err)
 		src.Close()
 		return
 	}
 	connStats.Open()
-	l.Debugf("%s: Open", connStats)
+	l.DLogf("%s: Open", connStats)
 	s, r := Pipe(src, dst)
 	connStats.Close()
-	l.Debugf("%s: Close (sent %s received %s)", connStats, sizestr.ToString(s), sizestr.ToString(r))
+	l.DLogf("%s: Close (sent %s received %s)", connStats, sizestr.ToString(s), sizestr.ToString(r))
 }

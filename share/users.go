@@ -61,13 +61,13 @@ func (u *Users) AddUser(user *User) {
 
 // UserIndex is a reloadable user source
 type UserIndex struct {
-	*Logger
+	Logger
 	*Users
 	configFile string
 }
 
 // NewUserIndex creates a source for users
-func NewUserIndex(logger *Logger) *UserIndex {
+func NewUserIndex(logger Logger) *UserIndex {
 	return &UserIndex{
 		Logger: logger.Fork("users"),
 		Users:  NewUsers(),
@@ -77,7 +77,7 @@ func NewUserIndex(logger *Logger) *UserIndex {
 // LoadUsers is responsible for loading users from a file
 func (u *UserIndex) LoadUsers(configFile string) error {
 	u.configFile = configFile
-	u.Infof("Loading the configuraion from: %s", configFile)
+	u.ILogf("Loading the configuraion from: %s", configFile)
 	if err := u.loadUserIndex(); err != nil {
 		return err
 	}
@@ -106,9 +106,9 @@ func (u *UserIndex) addWatchEvents() error {
 				continue
 			}
 			if err := u.loadUserIndex(); err != nil {
-				u.Infof("Failed to reload the users configuration: %s", err)
+				u.ILogf("Failed to reload the users configuration: %s", err)
 			} else {
-				u.Debugf("Users configuration successfully reloaded from: %s", u.configFile)
+				u.DLogf("Users configuration successfully reloaded from: %s", u.configFile)
 			}
 		}
 	}()

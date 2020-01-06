@@ -13,10 +13,10 @@ type UnixSkeletonEndpoint struct {
 }
 
 // NewUnixSkeletonEndpoint creates a new UnixSkeletonEndpoint
-func NewUnixSkeletonEndpoint(logger *Logger, ced *ChannelEndpointDescriptor) (*UnixSkeletonEndpoint, error) {
+func NewUnixSkeletonEndpoint(logger Logger, ced *ChannelEndpointDescriptor) (*UnixSkeletonEndpoint, error) {
 	ep := &UnixSkeletonEndpoint{
 		BasicEndpoint: BasicEndpoint{
-			ced:    ced,
+			ced: ced,
 		},
 	}
 	ep.InitBasicEndpoint(logger, ep, "UnixSkeletonEndpoint: %s", ced)
@@ -37,7 +37,7 @@ func (ep *UnixSkeletonEndpoint) Dial(ctx context.Context, extraData []byte) (Cha
 		err := ep.Errorf("Endpoint is closed: %s", ep.String())
 		return nil, err
 	}
-	
+
 	// TODO: make sure IPV6 works
 	var d net.Dialer
 	netConn, err := d.DialContext(ctx, "unix", ep.ced.Path)
@@ -47,8 +47,9 @@ func (ep *UnixSkeletonEndpoint) Dial(ctx context.Context, extraData []byte) (Cha
 
 	conn, err := NewSocketConn(ep.Logger, netConn)
 	if err != nil {
-		return nil, fmt.Errorf("%s: Unable to create SocketConn: %s", ep.Logger.Prefix(), err)
+		return nil, ep.Errorf("Unable to create SocketConn: %s", err)
 	}
+	ep.AddShutdownChild(conn)
 	return conn, nil
 }
 

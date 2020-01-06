@@ -19,13 +19,13 @@ type LoopStubEndpoint struct {
 
 // NewLoopStubEndpoint creates a new LoopStubEndpoint
 func NewLoopStubEndpoint(
-	logger *Logger,
+	logger Logger,
 	ced *ChannelEndpointDescriptor,
 	loopServer *LoopServer,
 ) (*LoopStubEndpoint, error) {
 	ep := &LoopStubEndpoint{
 		BasicEndpoint: BasicEndpoint{
-			ced:    ced,
+			ced: ced,
 		},
 		loopServer:  loopServer,
 		callerConns: make(chan ChannelConn, 5), // Allow a backlog of 5 connect requests before Accept()
@@ -88,6 +88,7 @@ func (ep *LoopStubEndpoint) Accept(ctx context.Context) (ChannelConn, error) {
 	if !ok {
 		return nil, fmt.Errorf("%s: endpoint is closed", ep.Logger.Prefix())
 	}
+	ep.AddShutdownChild(dialConn)
 	return dialConn, nil
 }
 

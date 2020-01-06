@@ -3,7 +3,6 @@ package chshare
 import (
 	"context"
 	"fmt"
-	"net"
 )
 
 // UnixStubEndpoint implements a local Unix domain socket stub
@@ -11,14 +10,14 @@ type UnixStubEndpoint struct {
 	// Implements LocalStubChannelEndpoint
 	BasicEndpoint
 	listenErr error
-	listener  net.Listener
+	listener  *LockedUnixSocketListener
 }
 
 // NewUnixStubEndpoint creates a new UnixStubEndpoint
-func NewUnixStubEndpoint(logger *Logger, ced *ChannelEndpointDescriptor) (*UnixStubEndpoint, error) {
+func NewUnixStubEndpoint(logger Logger, ced *ChannelEndpointDescriptor) (*UnixStubEndpoint, error) {
 	ep := &UnixStubEndpoint{
 		BasicEndpoint: BasicEndpoint{
-			ced:    ced,
+			ced: ced,
 		},
 	}
 	ep.InitBasicEndpoint(logger, ep, "UnixStubEndpoint: %s", ced)
@@ -28,7 +27,7 @@ func NewUnixStubEndpoint(logger *Logger, ced *ChannelEndpointDescriptor) (*UnixS
 // HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
 // as an advisory completion value, actually shut down, then return the real completion value.
 func (ep *UnixStubEndpoint) HandleOnceShutdown(completionErr error) error {
-	var listener net.Listener
+	var listener *LockedUnixSocketListener
 	ep.Lock.Lock()
 	listener = ep.listener
 	ep.listener = nil
@@ -45,8 +44,8 @@ func (ep *UnixStubEndpoint) HandleOnceShutdown(completionErr error) error {
 	return completionErr
 }
 
-func (ep *UnixStubEndpoint) getListener() (net.Listener, error) {
-	var listener net.Listener
+func (ep *UnixStubEndpoint) getListener() (*LockedUnixSocketListener, error) {
+	var listener *LockedUnixSocketListener
 	var err error
 
 	ep.Lock.Lock()
@@ -99,6 +98,8 @@ func (ep *UnixStubEndpoint) Accept(ctx context.Context) (ChannelConn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: Unable to create SocketConn: %s", ep.Logger.Prefix(), err)
 	}
+
+	ep.AddShutdownChild(conn)
 	return conn, nil
 }
 

@@ -13,13 +13,13 @@ type LoopSkeletonEndpoint struct {
 
 // NewLoopSkeletonEndpoint creates a new LoopSkeletonEndpoint
 func NewLoopSkeletonEndpoint(
-	logger *Logger,
+	logger Logger,
 	ced *ChannelEndpointDescriptor,
 	loopServer *LoopServer,
 ) (*LoopSkeletonEndpoint, error) {
 	ep := &LoopSkeletonEndpoint{
 		BasicEndpoint: BasicEndpoint{
-			ced:    ced,
+			ced: ced,
 		},
 		loopServer: loopServer,
 	}
@@ -44,7 +44,14 @@ func (ep *LoopSkeletonEndpoint) Dial(ctx context.Context, extraData []byte) (Cha
 	if ep.IsStartedShutdown() {
 		return nil, ep.Errorf("Endpoint is closed")
 	}
-	return ep.loopServer.Dial(ctx, ep.GetLoopPath(), extraData)
+	conn, err := ep.loopServer.Dial(ctx, ep.GetLoopPath(), extraData)
+	if err != nil {
+		return nil, ep.Errorf("Unable to lopp-dial path \"%s\": %s", ep.GetLoopPath(), err)
+	}
+
+	ep.AddShutdownChild(conn)
+
+	return conn, nil
 }
 
 // DialAndServe initiates a new connection to a Called Service as specified in the

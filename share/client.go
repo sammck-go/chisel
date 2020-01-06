@@ -4,22 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	socks5 "github.com/armon/go-socks5"
+	"github.com/gorilla/websocket"
+	"github.com/jpillora/backoff"
+	"golang.org/x/crypto/ssh"
 	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
-	socks5 "github.com/armon/go-socks5"
-	"github.com/gorilla/websocket"
-	"github.com/jpillora/backoff"
-	"golang.org/x/crypto/ssh"
 )
 
 //Config represents a client configuration
 type Config struct {
 	shared           *SessionConfigRequest
+	Debug            bool
 	Fingerprint      string
 	Auth             string
 	KeepAlive        time.Duration
@@ -33,8 +33,7 @@ type Config struct {
 
 //Client represents a client instance
 type Client struct {
-	*Logger
-	lock         sync.Mutex
+	ShutdownHelper
 	config       *Config
 	sshConfig    *ssh.ClientConfig
 	sshConn      ssh.Conn
@@ -52,7 +51,12 @@ type Client struct {
 //NewClient creates a new client instance
 func NewClient(config *Config) (*Client, error) {
 	//apply default scheme
-	logger := NewLogger("client")
+	logLevel := LogLevelInfo
+	if config.Debug {
+		logLevel = LogLevelDebug
+	}
+
+	logger := NewLogger("client", logLevel)
 
 	if !strings.HasPrefix(config.Server, "http") {
 		config.Server = "http://" + config.Server
@@ -88,7 +92,6 @@ func NewClient(config *Config) (*Client, error) {
 		return nil, fmt.Errorf("%s: Failed to start loop server", logger.Prefix())
 	}
 	client := &Client{
-		Logger:       logger,
 		config:       config,
 		sshConnReady: make(chan struct{}),
 		server:       u.String(),
@@ -96,7 +99,9 @@ func NewClient(config *Config) (*Client, error) {
 		runningc:     make(chan error, 1),
 		loopServer:   loopServer,
 	}
-	client.Info = true
+	client.InitShutdownHelper(logger, client)
+	client.PanicOnError(client.PauseShutdown())
+	defer client.ResumeShutdown()
 
 	if p := config.HTTPProxy; p != "" {
 		client.httpProxyURL, err = url.Parse(p)
@@ -150,10 +155,17 @@ func (c *Client) GetSocksServer() *socks5.Server {
 func (c *Client) Run(ctx context.Context) error {
 	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	if err := c.Start(subCtx); err != nil {
+	err := c.DoOnceActivate(
+		func() error {
+			return c.Start(subCtx) 
+		},
+		true,
+	)
+	if err != nil {
 		return err
 	}
-	return c.Wait()
+	c.ShutdownOnContext(ctx)
+	return c.WaitShutdown()
 }
 
 func (c *Client) verifyServer(hostname string, remote net.Addr, key ssh.PublicKey) error {
@@ -163,12 +175,13 @@ func (c *Client) verifyServer(hostname string, remote net.Addr, key ssh.PublicKe
 		return fmt.Errorf("Invalid fingerprint (%s)", got)
 	}
 	//overwrite with complete fingerprint
-	c.Infof("Fingerprint %s", got)
+	c.ILogf("Fingerprint %s", got)
 	return nil
 }
 
 //Start client and does not block
 func (c *Client) Start(ctx context.Context) error {
+	c.ShutdownOnContext(ctx)
 	via := ""
 	if c.httpProxyURL != nil {
 		via = " via " + c.httpProxyURL.String()
@@ -177,12 +190,13 @@ func (c *Client) Start(ctx context.Context) error {
 	for i, chd := range c.config.shared.ChannelDescriptors {
 		if !chd.Reverse && chd.Stub.Type != ChannelEndpointTypeStdio {
 			proxy := NewTCPProxy(c.Logger, c, i, chd)
+			c.AddShutdownChild(proxy)
 			if err := proxy.Start(ctx); err != nil {
 				return err
 			}
 		}
 	}
-	c.Infof("Connecting to %s%s\n", c.server, via)
+	c.ILogf("Connecting to %s%s\n", c.server, via)
 	//optional keepalive loop
 	if c.config.KeepAlive > 0 {
 		go c.keepAliveLoop()
@@ -220,12 +234,12 @@ func (c *Client) connectionLoop(ctx context.Context) {
 				}
 				msg += ")"
 			}
-			c.Debugf(msg)
+			c.DLogf(msg)
 			//give up?
 			if maxAttempt >= 0 && attempt >= maxAttempt {
 				break
 			}
-			c.Infof("Retrying in %s...", d)
+			c.ILogf("Retrying in %s...", d)
 			connerr = nil
 			SleepSignal(d)
 		}
@@ -254,34 +268,34 @@ func (c *Client) connectionLoop(ctx context.Context) {
 		}
 		conn := NewWebSocketConn(wsConn)
 		// perform SSH handshake on net.Conn
-		c.Debugf("Handshaking...")
+		c.DLogf("Handshaking...")
 		sshConn, chans, reqs, err := ssh.NewClientConn(conn, "", c.sshConfig)
 		if err != nil {
 			c.sshConnErr = err
 			if strings.Contains(err.Error(), "unable to authenticate") {
-				c.Infof("Authentication failed")
-				c.Debugf(err.Error())
+				c.ILogf("Authentication failed")
+				c.DLogf(err.Error())
 			} else {
-				c.Infof(err.Error())
+				c.ILogf(err.Error())
 			}
 			break
 		}
 		c.config.shared.Version = BuildVersion
 		conf, _ := c.config.shared.Marshal()
-		c.Debugf("Sending session config request")
+		c.DLogf("Sending session config request")
 		t0 := time.Now()
 		_, configerr, err := sshConn.SendRequest("config", true, conf)
 		if err != nil {
 			c.sshConnErr = err
-			c.Infof("Session config verification failed")
+			c.ILogf("Session config verification failed")
 			break
 		}
 		if len(configerr) > 0 {
-			c.Infof(string(configerr))
+			c.ILogf(string(configerr))
 			c.sshConnErr = fmt.Errorf("SSH server returned binary config error: %v", configerr)
 			break
 		}
-		c.Infof("Connected (Latency %s)", time.Since(t0))
+		c.ILogf("Connected (Latency %s)", time.Since(t0))
 		//connected
 		b.Reset()
 		go ssh.DiscardRequests(reqs)
@@ -289,23 +303,6 @@ func (c *Client) connectionLoop(ctx context.Context) {
 
 		// wake up anyone waiting for our ssh connection to be ready
 		close(c.sshConnReady)
-
-		/*
-		   if !stdioStarted {
-		     stdioStarted = true
-		     //prepare stdio proxy, which we deferred til we had a good connection)
-		     for i, chd := range c.config.shared.ChannelDescriptors {
-		       if !chd.Reverse && chd.Stub.Type == ChannelEndpointTypeStdio {
-		         proxy := NewTCPProxy(c.Logger, func() ssh.Conn { return c.sshConn }, i, chd)
-		         if err := proxy.Start(ctx); err != nil {
-		           c.Infof("Start of stdio proxy failed: %s", err)
-		           // TODO: stop the client
-		         }
-		         break
-		       }
-		     }
-		   }
-		*/
 
 		go c.connectStreams(ctx, chans)
 		err = sshConn.Wait()
@@ -319,7 +316,7 @@ func (c *Client) connectionLoop(ctx context.Context) {
 		//   connerr = err
 		//   continue
 		//   }
-		c.Infof("Disconnected\n")
+		c.ILogf("Disconnected\n")
 
 		break
 	}
@@ -329,29 +326,27 @@ func (c *Client) connectionLoop(ctx context.Context) {
 	close(c.runningc)
 }
 
-//Wait blocks while the client is running.
-//Can only be called once.
-func (c *Client) Wait() error {
-	return <-c.runningc
-}
-
-//Close manually stops the client
-func (c *Client) Close() error {
-	c.running = false
-	if c.sshConn == nil {
-		return nil
+// HandleOnceShutdown will be called exactly once, in its own goroutine. It should take completionError
+// as an advisory completion value, actually shut down, then return the real completion value.
+func (c *Client) HandleOnceShutdown(completionErr error) error {
+	var err error
+	if c.sshConn != nil {
+		c.sshConn.Close()
 	}
-	return c.sshConn.Close()
+	if completionErr == nil {
+		completionErr = err
+	}
+	return completionErr
 }
 
 func (c *Client) connectStreams(ctx context.Context, chans <-chan ssh.NewChannel) {
 	for ch := range chans {
 		reject := func(reason ssh.RejectionReason, err error) error {
-			c.Debugf("Sending SSH NewChannel rejection (reason=%v): %s", reason, err)
+			c.DLogf("Sending SSH NewChannel rejection (reason=%v): %s", reason, err)
 			// TODO allow cancellation with ctx
 			rejectErr := ch.Reject(reason, err.Error())
 			if rejectErr != nil {
-				c.Debugf("Unable to send SSH NewChannel reject response, ignoring: %s", rejectErr)
+				c.DLogf("Unable to send SSH NewChannel reject response, ignoring: %s", rejectErr)
 			}
 			return err
 		}
@@ -366,7 +361,7 @@ func (c *Client) connectStreams(ctx context.Context, chans <-chan ssh.NewChannel
 
 		// TODO: **MUST** implement access control (whitelist originally configured reverse-proxy skeletons)
 
-		c.Debugf("Remote channel connect request, endpoint ='%s'", epd.LongString())
+		c.DLogf("Remote channel connect request, endpoint ='%s'", epd.LongString())
 		if epd.Role != ChannelEndpointRoleSkeleton {
 			reject(ssh.Prohibited, c.Errorf("Endpoint role must be skeleton"))
 			continue
@@ -378,11 +373,13 @@ func (c *Client) connectStreams(ctx context.Context, chans <-chan ssh.NewChannel
 			continue
 		}
 
+		c.AddShutdownChild(ep)
+
 		// TODO: The actual local connect request should succeed before we accept the remote request.
 		//       Need to refactor code here
 		sshChannel, reqs, err := ch.Accept()
 		if err != nil {
-			c.Debugf("Failed to accept remote SSH Channel: %s", err)
+			c.DLogf("Failed to accept remote SSH Channel: %s", err)
 			continue
 		}
 
@@ -392,7 +389,7 @@ func (c *Client) connectStreams(ctx context.Context, chans <-chan ssh.NewChannel
 		// wrap the ssh.Channel to look like a ChannelConn
 		sshConn, err := NewSSHConn(c.Logger, sshChannel)
 		if err != nil {
-			c.Debugf("Failed to wrap SSH Channel: %s", err)
+			c.DLogf("Failed to wrap SSH Channel: %s", err)
 			sshChannel.Close()
 			ep.Close()
 			continue
@@ -406,9 +403,9 @@ func (c *Client) connectStreams(ctx context.Context, chans <-chan ssh.NewChannel
 		// sshConn and sshChannel have now been closed
 
 		if err != nil {
-			c.Debugf("NewChannel session ended with error after %d bytes (caller->called), %d bytes (called->caller): %s", numSent, numReceived, err)
+			c.DLogf("NewChannel session ended with error after %d bytes (caller->called), %d bytes (called->caller): %s", numSent, numReceived, err)
 		} else {
-			c.Debugf("NewChannel session ended normally after %d bytes (caller->called), %d bytes (called->caller)", numSent, numReceived)
+			c.DLogf("NewChannel session ended normally after %d bytes (caller->called), %d bytes (called->caller)", numSent, numReceived)
 		}
 	}
 }

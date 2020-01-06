@@ -213,7 +213,9 @@ func server(ctx context.Context, args []string) {
 	}
 	go chshare.GoStats()
 	if err = s.Run(ctx, *host, *port); err != nil {
-		log.Printf("Proxy server exited with: %s", err)
+		log.Printf("Proxy server exited with: %s -- closing", err)
+		err = s.Close()
+		log.Printf("Proxy server has closed: %s", err)
 	}
 }
 
@@ -320,6 +322,7 @@ func client(ctx context.Context, args []string) {
 		*auth = os.Getenv("AUTH")
 	}
 	c, err := chshare.NewClient(&chshare.Config{
+		Debug:            *verbose,
 		Fingerprint:      *fingerprint,
 		Auth:             *auth,
 		KeepAlive:        *keepalive,
@@ -333,12 +336,12 @@ func client(ctx context.Context, args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	c.Debug = *verbose
 	if *pid {
 		generatePidFile()
 	}
 	go chshare.GoStats()
 	if err = c.Run(ctx); err != nil {
-		log.Fatal(err)
+		log.Printf("Cliant exited with error: %s, closing", err)
+		c.Close()
 	}
 }
