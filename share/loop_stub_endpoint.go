@@ -75,6 +75,7 @@ func (ep *LoopStubEndpoint) StartListening() error {
 		if err != nil {
 			return fmt.Errorf("%s: StartListening failed: %s", ep.Logger.Prefix(), err)
 		}
+		ep.listening = true
 	}
 	return nil
 }

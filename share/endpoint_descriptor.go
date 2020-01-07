@@ -521,7 +521,7 @@ func ParseNextChannelEndpointDescriptor(parts []string, role ChannelEndpointRole
 			if haveType {
 				break
 			}
-			d.Type = ChannelEndpointTypeUnix
+			d.Type = ChannelEndpointTypeLoop
 			haveType = true
 		} else if IsPortNumberString(sp) {
 			if haveType && d.Type != ChannelEndpointTypeTCP {

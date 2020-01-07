@@ -207,14 +207,17 @@ func (c *Client) Start(ctx context.Context) error {
 }
 
 func (c *Client) keepAliveLoop() {
+	pingDelay := time.NewTimer(c.config.KeepAlive)
+	defer pingDelay.Stop()
 	for {
 		select {
 		case <-c.ShutdownStartedChan():
 			return
-		case <-time.After(c.config.KeepAlive):
+		case <-pingDelay.C:
 			if c.sshConn != nil {
 				c.sshConn.SendRequest("ping", true, nil)
 			}
+			pingDelay.Reset(c.config.KeepAlive)
 		}
 	}
 }
