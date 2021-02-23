@@ -1,6 +1,6 @@
 # chisel
 
-[![GoDoc](https://godoc.org/github.com/XevoInc/chisel?status.svg)](https://godoc.org/github.com/XevoInc/chisel)
+[![GoDoc](https://godoc.org/github.com/sammck/chisel?status.svg)](https://godoc.org/github.com/sammck/chisel)
 
 Chisel is a fast TCP tunnel, transported over HTTP, secured via SSH. Single executable including both client and server. Written in Go (golang). Chisel is mainly useful for passing through firewalls, though it can also be used to provide a secure endpoint into your network. Chisel is very similar to [crowbar](https://github.com/q3k/crowbar) though achieves **much** higher [performance](#performance).
 
@@ -23,9 +23,9 @@ Chisel is a fast TCP tunnel, transported over HTTP, secured via SSH. Single exec
 
 **Binaries**
 
-[![Releases](https://img.shields.io/github/release/jpillora/chisel.svg)](https://github.com/XevoInc/chisel/releases) [![Releases](https://img.shields.io/github/downloads/jpillora/chisel/total.svg)](https://github.com/XevoInc/chisel/releases)
+[![Releases](https://img.shields.io/github/release/jpillora/chisel.svg)](https://github.com/sammck/chisel/releases) [![Releases](https://img.shields.io/github/downloads/jpillora/chisel/total.svg)](https://github.com/sammck/chisel/releases)
 
-See [the latest release](https://github.com/XevoInc/chisel/releases/latest) or download and install it now with `curl https://i.jpillora.com/chisel! | bash`
+See [the latest release](https://github.com/sammck/chisel/releases/latest) or download and install it now with `curl https://i.jpillora.com/chisel! | bash`
 
 **Docker**
 
@@ -38,7 +38,7 @@ docker run --rm -it jpillora/chisel --help
 **Source**
 
 ```sh
-$ go get -v github.com/XevoInc/chisel
+$ go get -v github.com/sammck/chisel
 ```
 
 ### Demo
@@ -74,7 +74,7 @@ $ chisel --help
      client - runs chisel in client mode
 
    Read more:
-     https://github.com/XevoInc/chisel
+     https://github.com/sammck/chisel
 ```
 
 ```
@@ -137,7 +137,7 @@ $ chisel server --help
     X.Y.Z
 
   Read more:
-    https://github.com/XevoInc/chisel
+    https://github.com/sammck/chisel
 
 
 ```
@@ -234,7 +234,7 @@ $ chisel client --help
     X.Y.Z
 
   Read more:
-    https://github.com/XevoInc/chisel
+    https://github.com/sammck/chisel
 
 
 ```
@@ -354,9 +354,9 @@ See more [test/](test/)
 
 - http://golang.org/doc/code.html
 - http://golang.org/doc/effective_go.html
-- `github.com/XevoInc/chisel/share` contains the shared package
-- `github.com/XevoInc/chisel/server` contains the server package
-- `github.com/XevoInc/chisel/client` contains the client package
+- `github.com/sammck/chisel/share` contains the shared package
+- `github.com/sammck/chisel/server` contains the server package
+- `github.com/sammck/chisel/client` contains the client package
 
 ### Changelog
 

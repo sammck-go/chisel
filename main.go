@@ -4,13 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	chshare "github.com/XevoInc/chisel/share"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
+
+	chshare "github.com/sammck/chisel/share"
 )
 
 var help = `
@@ -23,7 +24,7 @@ var help = `
     client - runs chisel in client mode
 
   Read more:
-    https://github.com/XevoInc/chisel
+    https://github.com/sammck/chisel
 
 `
 
@@ -96,7 +97,7 @@ var commonHelp = `
     ` + chshare.BuildVersion + `
 
   Read more:
-    https://github.com/XevoInc/chisel
+    https://github.com/sammck/chisel
 
 `
 

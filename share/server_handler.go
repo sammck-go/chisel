@@ -14,7 +14,7 @@ func (s *Server) handleClientHandler(ctx context.Context, w http.ResponseWriter,
 	upgrade := strings.ToLower(r.Header.Get("Upgrade"))
 	if upgrade == "websocket" {
 		protocol := r.Header.Get("Sec-WebSocket-Protocol")
-		if strings.HasPrefix(protocol, "xevo-chisel-") {
+		if strings.HasPrefix(protocol, "sammck-chisel-") {
 			if protocol == ProtocolVersion {
 				s.DLogf("Upgrading to websocket, URL tail=\"%s\", protocol=\"%s\"", r.URL.String(), protocol)
 				wsConn, err := upgrader.Upgrade(w, r, nil)

@@ -2,8 +2,9 @@ package chshare
 
 import (
 	"fmt"
-	"github.com/XevoInc/chisel/chprotobuf"
+
 	"github.com/golang/protobuf/proto"
+	"github.com/sammck/chisel/chprotobuf"
 )
 
 // SessionConfigRequest describes a chisel proxy/client session configuration. It is

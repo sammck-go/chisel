@@ -1,5 +1,5 @@
 syntax = "proto3";
-option go_package = "github.com/XevoInc/chisel/chprotobuf";
+option go_package = "github.com/sammck/chisel/chprotobuf";
 
 enum PbEndpointRole { UNKNOWN=0; STUB=1; SKELETON=2; };
 

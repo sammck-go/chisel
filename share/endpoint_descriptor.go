@@ -2,9 +2,10 @@ package chshare
 
 import (
 	"fmt"
-	"github.com/XevoInc/chisel/chprotobuf"
 	"strconv"
 	"strings"
+
+	"github.com/sammck/chisel/chprotobuf"
 )
 
 // ChannelEndpointRole defines whether an endpoint is acting as

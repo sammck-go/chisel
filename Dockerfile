@@ -1,6 +1,6 @@
 # build stage
 FROM golang:alpine AS build-env
-LABEL maintainer="smckelvie@xevo.com"
+LABEL maintainer="sammck@gmail.com"
 RUN apk update
 RUN apk add git
 ENV CGO_ENABLED 0
@@ -8,7 +8,7 @@ ADD . /src
 WORKDIR /src
 RUN go build \
     -mod vendor \
-    -ldflags "-X github.com/XevoInc/chisel/share.BuildVersion=$(git describe --abbrev=0 --tags)" \
+    -ldflags "-X github.com/sammck/chisel/share.BuildVersion=$(git describe --abbrev=0 --tags)" \
     -o chisel
 # container stage
 FROM alpine

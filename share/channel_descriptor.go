@@ -2,7 +2,8 @@ package chshare
 
 import (
 	"fmt"
-	"github.com/XevoInc/chisel/chprotobuf"
+
+	"github.com/sammck/chisel/chprotobuf"
 )
 
 // ChannelDescriptor describes a pair of endpoints, one on the client proxy and one
