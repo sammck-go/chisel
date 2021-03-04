@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/sammck/chisel/chprotobuf"
+	"github.com/sammck-go/chisel/chprotobuf"
 )
 
 // SessionConfigRequest describes a chisel proxy/client session configuration. It is

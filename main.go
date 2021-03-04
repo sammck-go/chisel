@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"syscall"
 
-	chshare "github.com/sammck/chisel/share"
+	chshare "github.com/sammck-go/chisel/share"
 )
 
 var help = `
@@ -24,7 +24,7 @@ var help = `
     client - runs chisel in client mode
 
   Read more:
-    https://github.com/sammck/chisel
+    https://github.com/sammck-go/chisel
 
 `
 
@@ -97,7 +97,7 @@ var commonHelp = `
     ` + chshare.BuildVersion + `
 
   Read more:
-    https://github.com/sammck/chisel
+    https://github.com/sammck-go/chisel
 
 `
 
