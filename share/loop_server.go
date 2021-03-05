@@ -25,7 +25,7 @@ type LoopServer struct {
 // NewLoopServer creates a new LoopServer
 func NewLoopServer(logger Logger) (*LoopServer, error) {
 	s := &LoopServer{
-		Logger: logger.Fork("LoopServer"),
+		Logger:  logger.Fork("LoopServer"),
 		entries: make(map[string]*loopEntry),
 	}
 	return s, nil

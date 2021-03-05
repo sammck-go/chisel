@@ -11,7 +11,7 @@ import (
 type HTTPServer struct {
 	ShutdownHelper
 	*http.Server
-	listener       net.Listener
+	listener net.Listener
 }
 
 //NewHTTPServer creates a new HTTPServer
@@ -38,9 +38,7 @@ func (h *HTTPServer) HandleOnceShutdown(completionErr error) error {
 	return completionErr
 }
 
-
-
-// ListenAndServe Runs the HTTP server 
+// ListenAndServe Runs the HTTP server
 // on the given bind address, invoking the provided handler for each
 // request. It returns after the server has shutdown. The server can be
 // shutdown either by cancelling the context or by calling Shutdown().
@@ -70,7 +68,6 @@ func (h *HTTPServer) ListenAndServe(ctx context.Context, addr string, handler ht
 	}
 	return err
 }
-
 
 // Shutdown completely shuts down the server, then returns the final completion code
 func (h *HTTPServer) Shutdown(completionError error) error {

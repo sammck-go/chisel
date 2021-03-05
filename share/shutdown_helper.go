@@ -226,7 +226,6 @@ func (h *ShutdownHelper) DoOnceActivate(onceActivateHandler OnceActivateHandler,
 	return err
 }
 
-
 // ResumeShutdown decrements the shutdown pause count, and if it becomes zero, allows shutdown to start
 func (h *ShutdownHelper) ResumeShutdown() {
 	h.Lock.Lock()

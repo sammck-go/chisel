@@ -61,7 +61,7 @@ func (s *ServerSSHSession) startWithSSHConn(
 	sshRequests <-chan *ssh.Request,
 ) error {
 	err := s.PauseShutdown()
-	if (err != nil) {
+	if err != nil {
 		return s.DLogErrorf("runWithSSHConn() failed: %s", err)
 	}
 	defer s.ResumeShutdown()
@@ -165,14 +165,12 @@ func (s *ServerSSHSession) startWithSSHConn(
 
 	s.DLogf("SSH session up and running")
 
-	go func(){
+	go func() {
 		err := sshConn.Wait()
 		s.StartShutdown(err)
 	}()
 	return nil
 }
-
-
 
 // runWithSSHConn runs a proxy session from a client from start to end, given
 // an incoming ssh.ServerConn. On exit, the incoming ssh.ServerConn still
@@ -184,7 +182,7 @@ func (s *ServerSSHSession) runWithSSHConn(
 	sshRequests <-chan *ssh.Request,
 ) error {
 	err := s.startWithSSHConn(ctx, sshConn, newSSHChannels, sshRequests)
-	if (err != nil) {
+	if err != nil {
 		return err
 	}
 	return s.WaitShutdown()
@@ -194,12 +192,11 @@ func (s *ServerSSHSession) runWithSSHConn(
 // just-connected client socket (which has already been wrapped on a websocket)
 func (s *ServerSSHSession) Run(ctx context.Context, conn net.Conn) error {
 	err := s.PauseShutdown()
-	if (err != nil) {
+	if err != nil {
 		err = s.DLogErrorf("Run() failed: %s", err)
 		return err
 	}
 
-	
 	s.DLogf("SSH Handshaking...")
 	sshConn, newSSHChannels, sshRequests, err := ssh.NewServerConn(conn, s.server.sshConfig)
 	if err != nil {
