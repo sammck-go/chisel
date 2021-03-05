@@ -1,4 +1,4 @@
-<mxfile host="app.diagrams.net" modified="2021-03-05T00:10:30.772Z" agent="5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.192 Safari/537.36" etag="spS88xDb0tPJto5GAZaY" version="14.4.4" type="github">
+<mxfile host="app.diagrams.net" modified="2021-03-05T00:15:25.506Z" agent="5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.192 Safari/537.36" etag="_aacOvI52O7bMhtO3krq" version="14.4.4" type="github">
   <diagram name="Page-1" id="90a13364-a465-7bf4-72fc-28e22215d7a0">
     <mxGraphModel dx="2037" dy="1101" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1.5" pageWidth="1169" pageHeight="826" background="#ffffff" math="0" shadow="0">
       <root>
@@ -7,10 +7,10 @@
         <mxCell id="8LlZhLx9PLDOJmXSzdPH-19" value="Cloud Service Network" style="whiteSpace=wrap;html=1;shadow=1;fontSize=18;fillColor=#808080;strokeColor=#666666;horizontal=1;verticalAlign=top;" vertex="1" parent="1">
           <mxGeometry x="960" y="400" width="760" height="1040" as="geometry" />
         </mxCell>
-        <mxCell id="8LlZhLx9PLDOJmXSzdPH-18" value="Firewalled App Server Network" style="whiteSpace=wrap;html=1;shadow=1;fontSize=18;fillColor=#808080;strokeColor=#666666;horizontal=1;verticalAlign=top;" vertex="1" parent="1">
+        <mxCell id="8LlZhLx9PLDOJmXSzdPH-18" value="Firewalled App Server Network 2" style="whiteSpace=wrap;html=1;shadow=1;fontSize=18;fillColor=#808080;strokeColor=#666666;horizontal=1;verticalAlign=top;" vertex="1" parent="1">
           <mxGeometry x="160" y="1120" width="720" height="320" as="geometry" />
         </mxCell>
-        <mxCell id="8LlZhLx9PLDOJmXSzdPH-17" value="Firewalled App Client Network" style="whiteSpace=wrap;html=1;shadow=1;fontSize=18;fillColor=#808080;strokeColor=#666666;horizontal=1;verticalAlign=top;" vertex="1" parent="1">
+        <mxCell id="8LlZhLx9PLDOJmXSzdPH-17" value="Firewalled App Client Network 1" style="whiteSpace=wrap;html=1;shadow=1;fontSize=18;fillColor=#808080;strokeColor=#666666;horizontal=1;verticalAlign=top;" vertex="1" parent="1">
           <mxGeometry x="160" y="400" width="720" height="640" as="geometry" />
         </mxCell>
         <mxCell id="3a17f1ce550125da-2" value="Chisel Proxy Client" style="whiteSpace=wrap;html=1;shadow=1;fontSize=18;fillColor=#66FFB3;strokeColor=#666666;horizontal=1;verticalAlign=top;" parent="1" vertex="1">
@@ -55,13 +55,13 @@
         <mxCell id="8LlZhLx9PLDOJmXSzdPH-13" value="Client-side&lt;br&gt;Caller App C" style="whiteSpace=wrap;html=1;shadow=1;fontSize=18;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
           <mxGeometry x="200" y="840" width="160" height="120" as="geometry" />
         </mxCell>
-        <mxCell id="8LlZhLx9PLDOJmXSzdPH-14" value="Client-side&lt;br&gt;Called Service C" style="whiteSpace=wrap;html=1;shadow=1;fontSize=18;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+        <mxCell id="8LlZhLx9PLDOJmXSzdPH-14" value="App Server&lt;br&gt;Called Service C" style="whiteSpace=wrap;html=1;shadow=1;fontSize=18;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
           <mxGeometry x="200" y="1240" width="160" height="120" as="geometry" />
         </mxCell>
         <mxCell id="8LlZhLx9PLDOJmXSzdPH-15" value="Cloud Called Service A" style="whiteSpace=wrap;html=1;shadow=1;fontSize=18;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
           <mxGeometry x="1520" y="520" width="160" height="120" as="geometry" />
         </mxCell>
-        <mxCell id="8LlZhLx9PLDOJmXSzdPH-16" value="Cloud Caller App B" style="whiteSpace=wrap;html=1;shadow=1;fontSize=18;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+        <mxCell id="8LlZhLx9PLDOJmXSzdPH-16" value="Cloud Caller&lt;br&gt;App B" style="whiteSpace=wrap;html=1;shadow=1;fontSize=18;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
           <mxGeometry x="1520" y="680" width="160" height="120" as="geometry" />
         </mxCell>
         <mxCell id="8LlZhLx9PLDOJmXSzdPH-30" value="API A" style="endArrow=classic;html=1;strokeWidth=5;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" target="8LlZhLx9PLDOJmXSzdPH-3">
@@ -106,7 +106,7 @@
             <mxPoint as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="8LlZhLx9PLDOJmXSzdPH-38" value="API C" style="endArrow=classic;html=1;strokeWidth=5;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" target="8LlZhLx9PLDOJmXSzdPH-11">
+        <mxCell id="8LlZhLx9PLDOJmXSzdPH-38" value="API C" style="endArrow=classic;html=1;strokeWidth=5;entryX=1;entryY=0.5;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" target="8LlZhLx9PLDOJmXSzdPH-11">
           <mxGeometry x="-0.0625" y="-30" relative="1" as="geometry">
             <mxPoint x="1355" y="900" as="sourcePoint" />
             <mxPoint x="1475" y="899.9999999999998" as="targetPoint" />
