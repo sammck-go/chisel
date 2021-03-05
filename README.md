@@ -374,6 +374,7 @@ See more [test/](test/)
 #### MIT License
 
 Copyright © 2017 Jaime Pillora &lt;dev@jpillora.com&gt;
+Copyright © 2021 Samuel McKelvie &lt;dev@mckelvie.org&gt;
 
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
